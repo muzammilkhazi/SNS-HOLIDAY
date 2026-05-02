@@ -5,16 +5,14 @@
 import { useState } from 'react'
 import type { ScreenName } from '../../types'
 import { ChevronRightIcon } from '../icons/Icons'
-import { colors } from '../../constants/colors'
 
 interface EditProfileScreenProps {
   setActiveScreen: (screen: ScreenName) => void
 }
 
 const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
-  // # Form state — pre-filled with existing data
-  const [fullName, setFullName] = useState<string>('Mohammad Muzammil')
-  const [employeeId] = useState<string>('SNS-2024-047') // # Read only
+  const [fullName, setFullName] = useState<string>('')
+  const [employeeId] = useState<string>('SNS-2024-047')
   const [dob, setDob] = useState<string>('1998-08-15')
   const [gender, setGender] = useState<string>('Male')
   const [bloodGroup, setBloodGroup] = useState<string>('B+')
@@ -22,14 +20,13 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
   const [designation, setDesignation] = useState<string>('Frontend Developer')
   const [reportingManager, setReportingManager] = useState<string>('Mr. Sugumar')
   const [workLocation, setWorkLocation] = useState<string>('Belagavi, Karnataka')
-  const [email, setEmail] = useState<string>('muzammil@snsfashion.com')
+  const [email, setEmail] = useState<string>('')
   const [phone, setPhone] = useState<string>('+91 98765 43210')
   const [whatsapp, setWhatsapp] = useState<string>('+91 98765 43210')
   const [focusedField, setFocusedField] = useState<string>('')
   const [saving, setSaving] = useState<boolean>(false)
   const [successMsg, setSuccessMsg] = useState<string>('')
 
-  // # Shared input style
   const inputStyle = (field: string) => ({
     padding: '12px 14px',
     borderRadius: 10,
@@ -43,7 +40,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
     outline: 'none',
   })
 
-  // # Read only input style
   const readOnlyStyle = {
     padding: '12px 14px',
     borderRadius: 10,
@@ -57,7 +53,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
     cursor: 'not-allowed',
   }
 
-  // # Label style
   const labelStyle = {
     display: 'block' as const,
     fontSize: 10,
@@ -68,7 +63,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
     marginBottom: 6,
   }
 
-  // # Section title style
   const sectionTitleStyle = {
     fontSize: 13,
     fontWeight: 700,
@@ -80,10 +74,8 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
     gap: 8,
   }
 
-  // # Handle save
   const handleSave = () => {
     setSaving(true)
-    // # Will connect to Odoo API later
     setTimeout(() => {
       setSaving(false)
       setSuccessMsg('Profile updated successfully!')
@@ -98,23 +90,19 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
     <div className="flex flex-col h-full"
       style={{ backgroundColor: '#f8f7fc' }}>
 
-      {/* # Header — same gradient as login */}
+      {/* # Header */}
       <div style={{
         background: 'linear-gradient(160deg, #4f46e5 0%, #7c3aed 45%, #db2777 100%)',
         padding: '16px 20px 20px',
         position: 'relative',
         overflow: 'hidden',
       }}>
-
-        {/* # Decorative circles */}
         <div style={{
           position: 'absolute', top: -40, right: -40,
           width: 140, height: 140, borderRadius: '50%',
           backgroundColor: 'rgba(255,255,255,0.07)',
           pointerEvents: 'none',
         }} />
-
-        {/* # Back button + title */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -197,7 +185,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
             <span>👤</span> Personal Information
           </div>
 
-          {/* # Full Name */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Full Name</label>
             <input type="text" value={fullName}
@@ -208,7 +195,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('fullName')} />
           </div>
 
-          {/* # Employee ID — read only */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Employee ID <span style={{ color: '#d1d5db' }}>(Read Only)</span></label>
             <input type="text" value={employeeId}
@@ -216,7 +202,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={readOnlyStyle} />
           </div>
 
-          {/* # Date of Birth */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Date of Birth</label>
             <input type="date" value={dob}
@@ -229,7 +214,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('dob')} />
           </div>
 
-          {/* # Gender */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Gender</label>
             <select value={gender}
@@ -245,7 +229,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
             </select>
           </div>
 
-          {/* # Blood Group */}
           <div>
             <label style={labelStyle}>Blood Group</label>
             <select value={bloodGroup}
@@ -272,7 +255,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
             <span>🏢</span> Work Information
           </div>
 
-          {/* # Department */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Department</label>
             <input type="text" value={department}
@@ -283,7 +265,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('department')} />
           </div>
 
-          {/* # Designation */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Designation</label>
             <input type="text" value={designation}
@@ -294,7 +275,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('designation')} />
           </div>
 
-          {/* # Reporting Manager */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Reporting Manager</label>
             <input type="text" value={reportingManager}
@@ -305,7 +285,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('reportingManager')} />
           </div>
 
-          {/* # Work Location */}
           <div>
             <label style={labelStyle}>Work Location</label>
             <input type="text" value={workLocation}
@@ -328,7 +307,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
             <span>📞</span> Contact Information
           </div>
 
-          {/* # Email */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Email</label>
             <input type="email" value={email}
@@ -339,7 +317,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('email')} />
           </div>
 
-          {/* # Phone */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Phone</label>
             <input type="tel" value={phone}
@@ -350,7 +327,6 @@ const EditProfileScreen = ({ setActiveScreen }: EditProfileScreenProps) => {
               style={inputStyle('phone')} />
           </div>
 
-          {/* # WhatsApp */}
           <div>
             <label style={labelStyle}>WhatsApp</label>
             <input type="tel" value={whatsapp}

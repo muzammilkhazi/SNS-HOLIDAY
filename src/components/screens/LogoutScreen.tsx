@@ -1,36 +1,42 @@
 // ============================================
-// sns-holiday-app — Logout Screen
+// sns-holiday-app — Logout Screen (Dynamic)
 // ============================================
 
 import { useState } from 'react'
 import type { ScreenName } from '../../types'
+import { logoutApi, clearSession } from '../../services/api'
+import type { UserSession } from '../../services/api'
 
 interface LogoutScreenProps {
   setActiveScreen: (screen: ScreenName) => void
+  setSession: (session: null) => void
+  session: UserSession | null
 }
 
-const LogoutScreen = ({ setActiveScreen }: LogoutScreenProps) => {
-  // # Loading state for logout button
+const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProps) => {
   const [loading, setLoading] = useState<boolean>(false)
+  const [showPopup, setShowPopup] = useState<boolean>(true)
 
-  // # Handle logout confirm
-  const handleLogout = () => {
+  // # Handle logout — calls real Odoo API
+  const handleLogout = async () => {
     setLoading(true)
-    // # Will clear Odoo session later
-    setTimeout(() => {
+    try {
+      await logoutApi()
+    } catch {
+      // # Even if API fails still clear local session
+    } finally {
+      clearSession()
+      setSession(null)
       setLoading(false)
-      // # Go back to login screen
       setActiveScreen('login')
-    }, 1500)
+    }
   }
 
-  // # Handle cancel — go back to dashboard
   const handleCancel = () => {
     setActiveScreen('dashboard')
   }
 
   return (
-    // # Same gradient background as login
     <div className="flex flex-col h-full"
       style={{
         background: 'linear-gradient(160deg, #4f46e5 0%, #7c3aed 45%, #db2777 100%)',
@@ -38,273 +44,214 @@ const LogoutScreen = ({ setActiveScreen }: LogoutScreenProps) => {
         overflow: 'hidden',
       }}>
 
-      {/* # Decorative background circles — same as login */}
-      <div style={{
-        position: 'absolute',
-        top: -60,
-        right: -60,
-        width: 200,
-        height: 200,
-        borderRadius: '50%',
-        backgroundColor: 'rgba(255,255,255,0.07)',
-        pointerEvents: 'none',
-      }} />
-      <div style={{
-        position: 'absolute',
-        top: 80,
-        left: -80,
-        width: 260,
-        height: 260,
-        borderRadius: '50%',
-        backgroundColor: 'rgba(255,255,255,0.04)',
-        pointerEvents: 'none',
-      }} />
-      <div style={{
-        position: 'absolute',
-        bottom: 200,
-        right: -40,
-        width: 140,
-        height: 140,
-        borderRadius: '50%',
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        pointerEvents: 'none',
-      }} />
+      {/* # Decorative circles */}
+      <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: 80, left: -80, width: 260, height: 260, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: 200, right: -40, width: 140, height: 140, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
 
-      {/* # TOP — Branding section same as login */}
-      <div className="flex flex-col items-center"
-        style={{ paddingTop: 52, zIndex: 1 }}>
-
-        {/* # Logo box — frosted glass */}
+      {/* # TOP — Branding */}
+      <div className="flex flex-col items-center" style={{ paddingTop: 52, zIndex: 1 }}>
         <div style={{
-          width: 78,
-          height: 78,
-          borderRadius: 22,
+          width: 78, height: 78, borderRadius: 22,
           backgroundColor: 'rgba(255,255,255,0.15)',
           backdropFilter: 'blur(12px)',
-          borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.25)',
+          borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
           boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 14,
+          display: 'flex', alignItems: 'center',
+          justifyContent: 'center', marginBottom: 14,
         }}>
-          <span style={{
-            fontSize: 27,
-            fontWeight: 900,
-            color: '#ffffff',
-            fontFamily: 'Georgia, serif',
-            fontStyle: 'italic',
-            letterSpacing: -2,
-            textShadow: '0 2px 8px rgba(0,0,0,0.2)',
-          }}>SS</span>
+          <span style={{ fontSize: 27, fontWeight: 900, color: '#ffffff', fontFamily: 'Georgia, serif', fontStyle: 'italic', letterSpacing: -2, textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>SS</span>
         </div>
-
-        {/* # Company name */}
-        <h1 style={{
-          fontSize: 18,
-          fontWeight: 800,
-          color: '#ffffff',
-          letterSpacing: 4,
-          fontFamily: 'Inter, Montserrat, sans-serif',
-          textAlign: 'center',
-          textShadow: '0 2px 12px rgba(0,0,0,0.15)',
-          marginBottom: 7,
-        }}>SNS FASHION LTD</h1>
-
-        {/* # Tagline */}
+        <h1 style={{ fontSize: 18, fontWeight: 800, color: '#ffffff', letterSpacing: 4, textAlign: 'center', textShadow: '0 2px 12px rgba(0,0,0,0.15)', marginBottom: 7 }}>
+          SNS FASHION LTD
+        </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ height: 1, width: 18, backgroundColor: 'rgba(255,255,255,0.4)' }} />
-          <p style={{
-            fontSize: 9,
-            color: 'rgba(255,255,255,0.75)',
-            letterSpacing: 2,
-            fontStyle: 'italic',
-          }}>The Name You Can Trust</p>
+          <p style={{ fontSize: 9, color: 'rgba(255,255,255,0.75)', letterSpacing: 2, fontStyle: 'italic' }}>The Name You Can Trust</p>
           <div style={{ height: 1, width: 18, backgroundColor: 'rgba(255,255,255,0.4)' }} />
         </div>
       </div>
 
-      {/* # MIDDLE spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* # CENTER — Floating logout card */}
+      {/* # Logged in user info card */}
       <div style={{
-        zIndex: 1,
-        marginLeft: 20,
-        marginRight: 20,
-        backgroundColor: '#ffffff',
-        borderRadius: 28,
-        padding: '28px 22px 28px',
+        zIndex: 1, marginLeft: 20, marginRight: 20,
+        backgroundColor: '#ffffff', borderRadius: 28,
+        padding: '28px 22px',
         boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.8)',
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)',
       }}>
 
         {/* # App badge */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
-          <div style={{
-            paddingLeft: 12,
-            paddingRight: 12,
-            paddingTop: 5,
-            paddingBottom: 5,
-            borderRadius: 20,
-            backgroundColor: '#f3f0ff',
-            borderWidth: 1,
-            borderColor: '#e9d5ff',
-          }}>
-            <span style={{
-              fontSize: 10,
-              fontWeight: 700,
-              color: '#7c3aed',
-              letterSpacing: 1,
-            }}>⏰ TIME OFF MANAGEMENT</span>
+          <div style={{ paddingLeft: 12, paddingRight: 12, paddingTop: 5, paddingBottom: 5, borderRadius: 20, backgroundColor: '#f3f0ff', borderWidth: 1, borderColor: '#e9d5ff' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', letterSpacing: 1 }}>⏰ TIME OFF MANAGEMENT</span>
           </div>
         </div>
 
         {/* # Logout icon */}
-        <div style={{
-          width: 64,
-          height: 64,
-          borderRadius: 20,
-          backgroundColor: '#fef2f2',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 16,
-          borderWidth: 1,
-          borderColor: '#fecaca',
-        }}>
-          <span style={{ fontSize: 28 }}>🚪</span>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: 20,
+            backgroundColor: '#fef2f2',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderWidth: 1, borderColor: '#fecaca',
+          }}>
+            <span style={{ fontSize: 28 }}>🚪</span>
+          </div>
         </div>
 
-        {/* # Logout title */}
-        <h2 style={{
-          fontSize: 20,
-          fontWeight: 700,
-          color: '#1a1035',
-          marginBottom: 6,
-          fontFamily: 'Inter, sans-serif',
-        }}>Sign Out</h2>
-        <p style={{
-          fontSize: 13,
-          color: '#9ca3af',
-          marginBottom: 8,
-          lineHeight: 1.6,
-        }}>Are you sure you want to sign out of your account?</p>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1a1035', marginBottom: 6, textAlign: 'center' }}>
+          Sign Out
+        </h2>
+        <p style={{ fontSize: 13, color: '#9ca3af', marginBottom: 20, textAlign: 'center', lineHeight: 1.6 }}>
+          You are currently signed in as
+        </p>
 
-        {/* # Logged in user info card */}
+        {/* # User info */}
         <div style={{
-          backgroundColor: '#f9fafb',
-          borderRadius: 12,
-          padding: '12px 14px',
-          marginBottom: 24,
-          borderWidth: 1,
-          borderColor: '#e5e7eb',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
+          backgroundColor: '#f9fafb', borderRadius: 12,
+          padding: '12px 14px', marginBottom: 24,
+          borderWidth: 1, borderColor: '#e5e7eb',
+          display: 'flex', alignItems: 'center', gap: 12,
         }}>
-          {/* # Avatar */}
           <div style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
+            width: 40, height: 40, borderRadius: 12,
             background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <span style={{
-              fontSize: 16,
-              fontWeight: 800,
-              color: '#ffffff',
-            }}>👤</span>
+            <span style={{ fontSize: 16, color: '#ffffff' }}>👤</span>
           </div>
           <div>
-            <p style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: '#1a1035',
-              marginBottom: 2,
-            }}>SNS Employee</p>
-            <p style={{
-              fontSize: 11,
-              color: '#9ca3af',
-            }}>Currently signed in</p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#1a1035', marginBottom: 2 }}>
+              {session?.name || 'SNS Employee'}
+            </p>
+            <p style={{ fontSize: 11, color: '#9ca3af' }}>
+              {session?.username || 'Currently signed in'}
+            </p>
           </div>
-          {/* # Green online dot */}
-          <div style={{
-            marginLeft: 'auto',
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            backgroundColor: '#22c55e',
-            boxShadow: '0 0 6px rgba(34,197,94,0.5)',
-          }} />
+          <div style={{ marginLeft: 'auto', width: 10, height: 10, borderRadius: '50%', backgroundColor: '#22c55e' }} />
         </div>
 
-        {/* # Sign Out button — red gradient */}
+        {/* # Sign Out button — opens popup */}
         <button
-          onClick={handleLogout}
-          disabled={loading}
+          onClick={() => setShowPopup(true)}
           style={{
-            width: '100%',
-            padding: '14px',
-            borderRadius: 12,
-            fontSize: 15,
-            fontWeight: 700,
-            letterSpacing: 0.5,
-            color: '#ffffff',
-            background: loading
-              ? '#d1d5db'
-              : 'linear-gradient(135deg, #dc2626 0%, #db2777 100%)',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            boxShadow: loading
-              ? 'none'
-              : '0 6px 24px rgba(220,38,38,0.35)',
-            border: 'none',
-            transition: 'all 0.2s',
-            marginBottom: 12,
+            width: '100%', padding: '14px', borderRadius: 12,
+            fontSize: 15, fontWeight: 700, color: '#ffffff',
+            background: 'linear-gradient(135deg, #dc2626 0%, #db2777 100%)',
+            cursor: 'pointer', border: 'none',
+            boxShadow: '0 6px 24px rgba(220,38,38,0.35)',
+            marginBottom: 12, transition: 'all 0.2s',
           }}>
-          {loading ? '⏳ Signing out...' : '🚪 Sign Out'}
+          🚪 Sign Out
         </button>
 
         {/* # Cancel button */}
         <button
           onClick={handleCancel}
           style={{
-            width: '100%',
-            padding: '14px',
-            borderRadius: 12,
-            fontSize: 15,
-            fontWeight: 700,
-            letterSpacing: 0.5,
-            color: '#7c3aed',
-            background: '#f3f0ff',
-            cursor: 'pointer',
-            border: 'none',
-            transition: 'all 0.2s',
+            width: '100%', padding: '14px', borderRadius: 12,
+            fontSize: 15, fontWeight: 700, color: '#7c3aed',
+            background: '#f3f0ff', cursor: 'pointer',
+            border: 'none', transition: 'all 0.2s',
           }}>
           Cancel — Stay Signed In
         </button>
-
       </div>
 
-      {/* # BOTTOM spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* # Footer */}
-      <p style={{
-        textAlign: 'center',
-        fontSize: 11,
-        color: 'rgba(255,255,255,0.4)',
-        paddingBottom: 24,
-        zIndex: 1,
-      }}>
+      <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)', paddingBottom: 24, zIndex: 1 }}>
         © 2026 SNS Fashion Ltd. All rights reserved.
       </p>
+
+      {/* # Popup confirmation */}
+      {showPopup && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'center', padding: '0 24px',
+          }}
+          onClick={() => setShowPopup(false)}>
+          <div
+            style={{
+              backgroundColor: '#ffffff', borderRadius: 24,
+              padding: '28px 24px', width: '100%', maxWidth: 340,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}>
+
+            {/* # Popup icon */}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+              <div style={{
+                width: 64, height: 64, borderRadius: 20,
+                backgroundColor: '#fef2f2',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderWidth: 1, borderColor: '#fecaca',
+              }}>
+                <span style={{ fontSize: 28 }}>🚪</span>
+              </div>
+            </div>
+
+            {/* # Popup title */}
+            <h3 style={{
+              fontSize: 18, fontWeight: 800,
+              color: '#1a1035', textAlign: 'center', marginBottom: 8,
+            }}>
+              Are you sure?
+            </h3>
+
+            {/* # Popup message */}
+            <p style={{
+              fontSize: 13, color: '#9ca3af',
+              textAlign: 'center', lineHeight: 1.6, marginBottom: 8,
+            }}>
+              Are you sure you want to sign out?
+            </p>
+            <p style={{
+              fontSize: 13, fontWeight: 700,
+              color: '#1a1035', textAlign: 'center',
+              marginBottom: 24,
+            }}>
+              {session?.name || 'SNS Employee'}
+            </p>
+
+            {/* # Divider */}
+            <div style={{ borderTopWidth: 1, borderColor: '#f3f4f6', marginBottom: 16 }} />
+
+            {/* # Popup buttons */}
+            <button
+              onClick={handleLogout}
+              disabled={loading}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 12,
+                fontSize: 15, fontWeight: 700, color: '#ffffff',
+                background: loading ? '#d1d5db' : 'linear-gradient(135deg, #dc2626 0%, #db2777 100%)',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                border: 'none',
+                boxShadow: loading ? 'none' : '0 4px 16px rgba(220,38,38,0.3)',
+                marginBottom: 10, transition: 'all 0.2s',
+              }}>
+              {loading ? '⏳ Signing out...' : '✅ Yes, Sign Out'}
+            </button>
+
+            <button
+              onClick={() => setShowPopup(false)}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 12,
+                fontSize: 15, fontWeight: 700, color: '#7c3aed',
+                background: '#f3f0ff', cursor: 'pointer',
+                border: 'none', transition: 'all 0.2s',
+              }}>
+              No, Stay Signed In
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   )

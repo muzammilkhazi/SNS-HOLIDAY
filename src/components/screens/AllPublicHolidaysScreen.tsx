@@ -1,83 +1,147 @@
 // ============================================
-// sns-holiday-app — All Public Holidays Screen
+// sns-holiday-app — All Public Holidays Screen (Dynamic)
 // ============================================
 
-import type { ScreenName, PublicHoliday } from '../../types'
-import { publicHolidays } from '../../data/mockData'
+import { useState, useEffect } from 'react'
+import type { ScreenName } from '../../types'
 import { CalendarIcon, ChevronRightIcon } from '../icons/Icons'
 import BottomNav from '../BottomNav'
 import { colors } from '../../constants/colors'
 
-// # Props
+interface PublicHoliday {
+  id: number
+  name: string
+  date_from: string
+  date_to: string
+}
+
 interface AllPublicHolidaysScreenProps {
   setActiveScreen: (screen: ScreenName) => void
 }
 
+const ACCENT_COLORS = [
+  '#4f46e5', '#7c3aed', '#db2777', '#059669',
+  '#d97706', '#dc2626', '#2563eb', '#7c3aed',
+]
+
 const AllPublicHolidaysScreen = ({ setActiveScreen }: AllPublicHolidaysScreenProps) => {
+  const [holidays, setHolidays] = useState<PublicHoliday[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchPublicHolidays()
+  }, [])
+
+  const fetchPublicHolidays = async () => {
+  setLoading(true)
+  try {
+    const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 8,
+        params: {
+          model: 'resource.calendar.leaves',
+          method: 'search_read',
+          args: [[
+            ['name', 'not ilike', 'Time Off'],
+            ['name', 'not ilike', 'Test'],
+            ['resource_id', '=', false],
+          ]],
+          kwargs: {
+            fields: ['id', 'name', 'date_from', 'date_to'],
+            order: 'date_from asc',
+          },
+        },
+      }),
+    })
+    const data = await res.json()
+    if (data.result) setHolidays(data.result)
+  } catch (err) {
+    console.error('Error fetching public holidays:', err)
+  } finally {
+    setLoading(false)
+  }
+}
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return ''
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    })
+  }
+
   return (
-    <div className="flex flex-col h-full"
-      style={{ backgroundColor: colors.background }}>
+    <div className="flex flex-col h-full" style={{ backgroundColor: colors.background }}>
 
       {/* # Header */}
-      <div className="p-4 shadow-md"
-        style={{ background: colors.gradientHeader }}>
+      <div className="p-4 shadow-md" style={{ background: colors.gradientHeader }}>
         <div className="flex items-center justify-between">
-          {/* # Back button goes to dashboard */}
-          <button
-            onClick={() => setActiveScreen('dashboard')}
+          <button onClick={() => setActiveScreen('dashboard')}
             className="p-2 rounded-full backdrop-blur-sm"
             style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
             <ChevronRightIcon className="w-5 h-5 text-white rotate-180" />
           </button>
           <div className="flex-1 text-center">
             <h1 className="text-lg font-bold text-white">Public Holidays</h1>
-            <p className="text-xs"
-              style={{ color: 'rgba(255,255,255,0.8)' }}>
-              {publicHolidays.length} holidays in 2026
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.8)' }}>
+              {loading ? '...' : `${holidays.length} holidays`}
             </p>
           </div>
           <div className="w-9" />
         </div>
       </div>
 
-      {/* # Public holidays list */}
+      {/* # Holidays list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="space-y-2">
-          {publicHolidays.map((holiday: PublicHoliday, index: number) => (
-            <div key={index} className="rounded-xl p-4 shadow-sm"
-              style={{
-                backgroundColor: colors.cardBg,
-                borderColor: colors.border,
-                borderWidth: 1,
-              }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {/* # Colored left accent bar */}
-                  <div className="w-1 h-12 rounded-full"
-                    style={{ backgroundColor: holiday.color }} />
-                  <div>
-                    <p className="font-semibold text-sm"
-                      style={{ color: colors.textPrimary }}>{holiday.name}</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <CalendarIcon className="w-3 h-3"
-                        style={{ color: colors.textLight }} />
-                      <p className="text-xs"
-                        style={{ color: colors.textMuted }}>
-                        {holiday.start} - {holiday.end}
+        {loading ? (
+          <div className="text-center py-12">
+            <p style={{ color: colors.textMuted }}>Loading...</p>
+          </div>
+        ) : holidays.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: colors.background }}>
+              <CalendarIcon className="w-8 h-8" style={{ color: colors.textLight }} />
+            </div>
+            <p className="font-medium" style={{ color: colors.textSecondary }}>
+              No public holidays found
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {holidays.map((holiday, index) => (
+              <div key={holiday.id} className="rounded-xl p-4 shadow-sm"
+                style={{ backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: 1 }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* # Colored accent bar */}
+                    <div className="w-1 h-12 rounded-full"
+                      style={{ backgroundColor: ACCENT_COLORS[index % ACCENT_COLORS.length] }} />
+                    <div>
+                      <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>
+                        {holiday.name}
                       </p>
+                      <div className="flex items-center gap-1 mt-1">
+                        <CalendarIcon className="w-3 h-3" style={{ color: colors.textLight }} />
+                        <p className="text-xs" style={{ color: colors.textMuted }}>
+                          {formatDate(holiday.date_from)}
+                          {holiday.date_to && holiday.date_to !== holiday.date_from
+                            ? ` → ${formatDate(holiday.date_to)}`
+                            : ''}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-                {/* # Colored calendar icon on right */}
-                <div className="p-2 rounded-lg"
-                  style={{ backgroundColor: '#e0e7ff' }}>
-                  <CalendarIcon className="w-5 h-5"
-                    style={{ color: colors.primary }} />
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#e0e7ff' }}>
+                    <CalendarIcon className="w-5 h-5" style={{ color: colors.primary }} />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <BottomNav active="dashboard" setActiveScreen={setActiveScreen} />

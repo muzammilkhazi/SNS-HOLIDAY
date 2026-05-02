@@ -1,72 +1,176 @@
 // ============================================
-// sns-holiday-app — Dashboard / Home Screen
+// sns-holiday-app — Dashboard Screen (Dynamic)
 // ============================================
 
-import { useState } from 'react'
-import type { ScreenName, StressDay, PublicHoliday } from '../../types'
-import { stats, stressDays, publicHolidays } from '../../data/mockData'
-import { BellIcon, UserIcon, CalendarIcon, PlusIcon, FileTextIcon, AlertCircleIcon } from '../icons/Icons'
+import { useState, useEffect } from 'react'
+import type { ScreenName } from '../../types'
+import type { UserSession } from '../../services/api'
+import { loadSession, getSessionId } from '../../services/api'
+import { UserIcon, CalendarIcon, PlusIcon, FileTextIcon } from '../icons/Icons'
 import BottomNav from '../BottomNav'
 import { colors } from '../../constants/colors'
 
-interface DashboardScreenProps {
-  setActiveScreen: (screen: ScreenName) => void
+interface LeaveType {
+  id: number
+  name: string
+  max_leaves: number
+  leaves_taken: number
+  remaining_leaves: number
+  virtual_remaining_leaves: number
 }
 
-const DashboardScreen = ({ setActiveScreen }: DashboardScreenProps) => {
-  // State for the Info Popup Modal
-  const [selectedStressDay, setSelectedStressDay] = useState<StressDay | null>(null)
+interface LeaveRequest {
+  id: number
+  name: string | false
+  holiday_status_id: [number, string]
+  request_date_from: string
+  request_date_to: string
+  number_of_days: number
+  state: string
+  employee_id: [number, string]
+}
+
+interface PublicHoliday {
+  id: number
+  name: string
+  date_from: string
+  date_to: string
+}
+
+interface DashboardScreenProps {
+  setActiveScreen: (screen: ScreenName) => void
+  session?: UserSession | null
+}
+
+const STATE_LABELS: Record<string, { label: string; color: string }> = {
+  draft:     { label: 'Draft',    color: '#9ca3af' },
+  confirm:   { label: 'Pending',  color: '#f59e0b' },
+  validate:  { label: 'Approved', color: '#22c55e' },
+  validate1: { label: 'Approved', color: '#22c55e' },
+  refuse:    { label: 'Refused',  color: '#ef4444' },
+}
+
+const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => {
+  const [leaveTypes, setLeaveTypes]         = useState<LeaveType[]>([])
+  const [recentLeaves, setRecentLeaves]     = useState<LeaveRequest[]>([])
+  const [publicHolidays, setPublicHolidays] = useState<PublicHoliday[]>([])
+  const [loading, setLoading]               = useState(true)
+
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    setLoading(true)
+    try {
+      await Promise.all([
+        fetchLeaveTypes(),
+        fetchRecentLeaves(),
+        fetchPublicHolidays(),
+      ])
+    } catch (err) {
+      console.error('Dashboard fetch error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchLeaveTypes = async () => {
+  const res = await fetch('/web/dataset/call_kw/hr.leave.type/search_read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      jsonrpc: '2.0', method: 'call', id: 4,
+      params: {
+        session_id: getSessionId(),
+        model: 'hr.leave.type',
+        method: 'search_read',
+        args: [[]],
+        kwargs: {
+          fields: ['id', 'name'],
+        },
+      },
+    }),
+  })
+  const data = await res.json()
+  // # ADD THIS LINE TEMPORARILY
+  if (data.result) setLeaveTypes(data.result)
+}
+
+  const fetchRecentLeaves = async () => {
+    const currentSession = session || loadSession()
+    const employeeId = currentSession?.employeeId
+
+    const domain = employeeId
+      ? [['holiday_type', '=', 'employee'], ['employee_id', '=', employeeId]]
+      : [['holiday_type', '=', 'employee']]
+
+    const res = await fetch('/web/dataset/call_kw/hr.leave/search_read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 7,
+        params: {
+          session_id: getSessionId(),
+          model: 'hr.leave',
+          method: 'search_read',
+          args: [domain],
+          kwargs: {
+            fields: ['id', 'name', 'holiday_status_id', 'request_date_from', 'request_date_to', 'number_of_days', 'state', 'employee_id'],
+            order: 'request_date_from desc',
+            limit: 5,
+          },
+        },
+      }),
+    })
+    const data = await res.json()
+    if (data.result) setRecentLeaves(data.result)
+  }
+
+  const fetchPublicHolidays = async () => {
+    const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 8,
+        params: {
+          session_id: getSessionId(),
+          model: 'resource.calendar.leaves',
+          method: 'search_read',
+          args: [[
+            ['name', 'not ilike', 'Time Off'],
+            ['name', 'not ilike', 'Test'],
+            ['resource_id', '=', false],
+          ]],
+          kwargs: {
+            fields: ['id', 'name', 'date_from', 'date_to'],
+            order: 'date_from asc',
+            limit: 5,
+          },
+        },
+      }),
+    })
+    const data = await res.json()
+    if (data.result) setPublicHolidays(data.result)
+  }
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return ''
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    })
+  }
+
+  const paidTimeOff = leaveTypes.find(l => l.name.toLowerCase().includes('paid'))
+  const annualLeave = leaveTypes.find(l => l.name.toLowerCase().includes('annual'))
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.background }}>
 
-      {/* --- Info Popup Modal --- */}
-      {selectedStressDay && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-6"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-          onClick={() => setSelectedStressDay(null)}>
-          <div
-            className="w-full rounded-2xl p-5 shadow-xl"
-            style={{ backgroundColor: colors.cardBg, maxWidth: 380 }}
-            onClick={(e) => e.stopPropagation()}>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-1 h-12 rounded-full"
-                style={{ backgroundColor: selectedStressDay.color }} />
-              <div>
-                <h3 className="font-bold text-base" style={{ color: colors.textPrimary }}>
-                  {selectedStressDay.name}
-                </h3>
-                <div className="flex items-center gap-1 mt-1">
-                  <CalendarIcon className="w-3 h-3" style={{ color: colors.textLight }} />
-                  <p className="text-xs" style={{ color: colors.textMuted }}>
-                    {selectedStressDay.start} - {selectedStressDay.end}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ borderTopWidth: 1, borderColor: colors.borderMedium }} className="mb-3" />
-
-            <div className="mb-4">
-              <p className="text-xs font-bold mb-1" style={{ color: colors.textSecondary }}>Reason</p>
-              <p className="text-sm" style={{ color: colors.textPrimary }}>
-                {selectedStressDay.reason}
-              </p>
-            </div>
-
-            <button
-              onClick={() => setSelectedStressDay(null)}
-              className="w-full py-3 rounded-xl font-bold text-sm text-white"
-              style={{ background: colors.gradientButton }}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* --- Header Section --- */}
+      {/* # Header */}
       <div className="p-6 pb-8 shadow-lg" style={{ background: colors.gradientHeader }}>
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -75,65 +179,50 @@ const DashboardScreen = ({ setActiveScreen }: DashboardScreenProps) => {
               Manage your leave requests
             </p>
           </div>
-
-          {/* Header Action Buttons (Updated) */}
-          <div className="flex gap-3">
-            <button className="p-2 rounded-full backdrop-blur-sm"
-              style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
-              <BellIcon className="w-5 h-5 text-white" />
-            </button>
-            {/* # User icon — goes to profile screen */}
-            <button
-              onClick={() => setActiveScreen('profile')}
-              className="p-2 rounded-full backdrop-blur-sm"
-              style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
-              <UserIcon className="w-5 h-5 text-white" />
-           </button>
-          </div>
+          <button
+            onClick={() => setActiveScreen('profile')}
+            className="p-2 rounded-full backdrop-blur-sm"
+            style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
+            <UserIcon className="w-5 h-5 text-white" />
+          </button>
         </div>
 
-        {/* Stats Cards */}
+        {/* # Stats Cards */}
         <div className="grid grid-cols-2 gap-4">
-          {/* Paid Time Off */}
-          <div className="backdrop-blur-md rounded-2xl p-4 shadow-md" style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}>
+          <div className="backdrop-blur-md rounded-2xl p-4 shadow-md"
+            style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}>
             <div className="flex items-center gap-2 mb-2">
               <div className="p-2 rounded-lg" style={{ backgroundColor: '#e0e7ff' }}>
                 <CalendarIcon className="w-4 h-4" style={{ color: colors.primary }} />
               </div>
               <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>Paid Time Off</p>
             </div>
-            <p className="text-3xl font-bold" style={{ color: colors.textPrimary }}>{stats.paidTimeOff}</p>
-            <div className="flex items-center gap-1 mt-2">
-              <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.borderMedium }}>
-                <div className="h-full rounded-full" style={{ width: '80%', background: colors.gradientCard }} />
-              </div>
-              <span className="text-xs" style={{ color: colors.textMuted }}>80%</span>
-            </div>
+            <p className="text-3xl font-bold" style={{ color: colors.textPrimary }}>
+              {loading ? '...' : (paidTimeOff ? paidTimeOff.virtual_remaining_leaves : '0')}
+            </p>
+            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>days remaining</p>
           </div>
 
-          {/* Business Trips */}
-          <div className="backdrop-blur-md rounded-2xl p-4 shadow-md" style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}>
+          <div className="backdrop-blur-md rounded-2xl p-4 shadow-md"
+            style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}>
             <div className="flex items-center gap-2 mb-2">
               <div className="p-2 rounded-lg" style={{ backgroundColor: '#f3e8ff' }}>
                 <CalendarIcon className="w-4 h-4" style={{ color: colors.secondary }} />
               </div>
-              <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>Business Trips</p>
+              <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>Annual Leave</p>
             </div>
-            <p className="text-3xl font-bold" style={{ color: colors.textPrimary }}>{stats.businessTrips}</p>
-            <div className="flex items-center gap-1 mt-2">
-              <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.borderMedium }}>
-                <div className="h-full rounded-full" style={{ width: '50%', background: colors.gradientButton }} />
-              </div>
-              <span className="text-xs" style={{ color: colors.textMuted }}>50%</span>
-            </div>
+            <p className="text-3xl font-bold" style={{ color: colors.textPrimary }}>
+              {loading ? '...' : (annualLeave ? annualLeave.virtual_remaining_leaves : '0')}
+            </p>
+            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>days remaining</p>
           </div>
         </div>
       </div>
 
-      {/* --- Scrollable Content --- */}
+      {/* # Scrollable Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
 
-        {/* Quick Actions */}
+        {/* # Quick Actions */}
         <div className="mb-6">
           <h2 className="text-lg font-bold mb-3" style={{ color: colors.textPrimary }}>Quick Actions</h2>
           <div className="grid grid-cols-2 gap-3">
@@ -152,67 +241,115 @@ const DashboardScreen = ({ setActiveScreen }: DashboardScreenProps) => {
           </div>
         </div>
 
-        {/* Stress Days */}
+        {/* # Recent Requests */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>Stress Days</h2>
-            <button onClick={() => setActiveScreen('allStressDays')} className="text-sm font-semibold" style={{ color: colors.primary }}>
+            <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>Recent Requests</h2>
+            <button onClick={() => setActiveScreen('timeoff')}
+              className="text-sm font-semibold" style={{ color: colors.primary }}>
               View All →
             </button>
           </div>
-          <div className="space-y-2">
-            {stressDays.slice(0, 3).map((day: StressDay, index: number) => (
-              <div key={index} className="rounded-xl p-4 shadow-sm border" style={{ backgroundColor: colors.cardBg, borderColor: colors.border }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-1 h-12 rounded-full" style={{ backgroundColor: day.color }} />
-                    <div>
-                      <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>{day.name}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <CalendarIcon className="w-3 h-3" style={{ color: colors.textLight }} />
-                        <p className="text-xs" style={{ color: colors.textMuted }}>{day.start} - {day.end}</p>
+
+          {loading ? (
+            <div className="rounded-xl p-4 text-center"
+              style={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <p style={{ color: colors.textMuted }}>Loading...</p>
+            </div>
+          ) : recentLeaves.length === 0 ? (
+            <div className="rounded-xl p-4 text-center"
+              style={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <p style={{ color: colors.textMuted }}>No leave requests found</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {recentLeaves.map((leave) => {
+                const stateInfo = STATE_LABELS[leave.state] || { label: leave.state, color: '#9ca3af' }
+                return (
+                  <div key={leave.id} className="rounded-xl p-4 shadow-sm"
+                    style={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-1 h-12 rounded-full" style={{ backgroundColor: stateInfo.color }} />
+                        <div>
+                          <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>
+                            {leave.holiday_status_id[1]}
+                          </p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <CalendarIcon className="w-3 h-3" style={{ color: colors.textLight }} />
+                            <p className="text-xs" style={{ color: colors.textMuted }}>
+                              {formatDate(leave.request_date_from)} → {formatDate(leave.request_date_to)}
+                            </p>
+                          </div>
+                          <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                            {leave.number_of_days} day{leave.number_of_days !== 1 ? 's' : ''} • {leave.employee_id[1]}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="px-2 py-1 rounded-lg"
+                        style={{ backgroundColor: stateInfo.color + '20' }}>
+                        <span className="text-xs font-bold" style={{ color: stateInfo.color }}>
+                          {stateInfo.label}
+                        </span>
                       </div>
                     </div>
                   </div>
-                  <button onClick={() => setSelectedStressDay(day)} className="p-1 rounded-full hover:bg-gray-100 transition-all">
-                    <AlertCircleIcon className="w-5 h-5" style={{ color: colors.primary }} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
-        {/* Public Holidays */}
+        {/* # Public Holidays */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>Public Holidays</h2>
-            <button onClick={() => setActiveScreen('allPublicHolidays')} className="text-sm font-semibold" style={{ color: colors.primary }}>
+            <button onClick={() => setActiveScreen('allPublicHolidays')}
+              className="text-sm font-semibold" style={{ color: colors.primary }}>
               View All →
             </button>
           </div>
-          <div className="space-y-2">
-            {publicHolidays.slice(0, 3).map((holiday: PublicHoliday, index: number) => (
-              <div key={index} className="rounded-xl p-4 shadow-sm border" style={{ backgroundColor: colors.cardBg, borderColor: colors.border }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-1 h-12 rounded-full" style={{ backgroundColor: holiday.color }} />
-                    <div>
-                      <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>{holiday.name}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <CalendarIcon className="w-3 h-3" style={{ color: colors.textLight }} />
-                        <p className="text-xs" style={{ color: colors.textMuted }}>{holiday.start} - {holiday.end}</p>
+
+          {loading ? (
+            <div className="rounded-xl p-4 text-center"
+              style={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <p style={{ color: colors.textMuted }}>Loading...</p>
+            </div>
+          ) : publicHolidays.length === 0 ? (
+            <div className="rounded-xl p-4 text-center"
+              style={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <p style={{ color: colors.textMuted }}>No public holidays found</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {publicHolidays.slice(0, 3).map((holiday) => (
+                <div key={holiday.id} className="rounded-xl p-4 shadow-sm"
+                  style={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-1 h-12 rounded-full" style={{ backgroundColor: colors.primary }} />
+                      <div>
+                        <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>
+                          {holiday.name}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1">
+                          <CalendarIcon className="w-3 h-3" style={{ color: colors.textLight }} />
+                          <p className="text-xs" style={{ color: colors.textMuted }}>
+                            {formatDate(holiday.date_from)}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#e0e7ff' }}>
-                    <CalendarIcon className="w-5 h-5" style={{ color: colors.primary }} />
+                    <div className="p-2 rounded-lg" style={{ backgroundColor: '#e0e7ff' }}>
+                      <CalendarIcon className="w-5 h-5" style={{ color: colors.primary }} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
+
       </div>
 
       <BottomNav active="dashboard" setActiveScreen={setActiveScreen} />
