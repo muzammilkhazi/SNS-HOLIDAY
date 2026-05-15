@@ -3,7 +3,7 @@
 // ============================================
 
 // # Screen navigation type
-export type ScreenName = 'login' | 'logout' | 'dashboard' | 'allocations' | 'newRequest' | 'timeoff' | 'allStressDays' | 'allPublicHolidays' | 'profile' | 'editProfile' | 'settings'
+export type ScreenName = 'login' | 'logout' | 'dashboard' | 'allocations' | 'newRequest' | 'timeoff' | 'allStressDays' | 'allPublicHolidays' | 'profile' | 'settings' | 'whosAway'
 
 // # Stats data type
 export interface Stats {

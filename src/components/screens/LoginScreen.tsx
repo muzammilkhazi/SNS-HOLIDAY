@@ -2,9 +2,9 @@
 // sns-holiday-app — Login Screen (Dynamic)
 // ============================================
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { ScreenName } from '../../types'
-import { loginApi, saveSession } from '../../services/api'
+import { loginApi, clearSession } from '../../services/api'
 import type { UserSession } from '../../services/api'
 
 interface LoginScreenProps {
@@ -15,7 +15,6 @@ interface LoginScreenProps {
 const LoginScreen = ({ setActiveScreen, setSession }: LoginScreenProps) => {
   const [username, setUsername] = useState<string>('')
   const [password, setPassword] = useState<string>('')
-  const [rememberMe, setRememberMe] = useState<boolean>(false)
   const [showPassword, setShowPassword] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
@@ -27,6 +26,12 @@ const LoginScreen = ({ setActiveScreen, setSession }: LoginScreenProps) => {
   const [forgotLoading, setForgotLoading] = useState<boolean>(false)
   const [forgotSuccess, setForgotSuccess] = useState<string>('')
   const [forgotError, setForgotError] = useState<string>('')
+  const forgotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // # Cleanup timer on unmount to prevent setState on unmounted component
+  useEffect(() => {
+    return () => { if (forgotTimerRef.current) clearTimeout(forgotTimerRef.current) }
+  }, [])
 
   // # Handle login — calls real Odoo API
   const handleLogin = async () => {
@@ -34,11 +39,12 @@ const LoginScreen = ({ setActiveScreen, setSession }: LoginScreenProps) => {
     if (!password.trim()) { setError('Please enter your password'); return }
     setError('')
     setLoading(true)
+    // # Clear any previous session before writing a new one
+    clearSession()
     try {
       const session = await loginApi(username, password)
-      saveSession(session)
+      // # loginApi already calls saveSession internally — do not call again
       setSession(session)
-      alert('SessionID: ' + session.sessionId?.slice(0, 30))
       setActiveScreen('dashboard')
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : ''
@@ -97,7 +103,8 @@ const LoginScreen = ({ setActiveScreen, setSession }: LoginScreenProps) => {
         }
       } else {
         setForgotSuccess('✅ Password reset email sent! Please check your inbox.')
-        setTimeout(() => {
+        // # Store timer ref so it can be cancelled if component unmounts
+        forgotTimerRef.current = setTimeout(() => {
           setShowForgotPopup(false)
           setForgotSuccess('')
           setForgotEmail('')
@@ -112,6 +119,7 @@ const LoginScreen = ({ setActiveScreen, setSession }: LoginScreenProps) => {
 
   // # Close forgot popup and reset states
   const closeForgotPopup = () => {
+    if (forgotTimerRef.current) clearTimeout(forgotTimerRef.current)
     setShowForgotPopup(false)
     setForgotEmail('')
     setForgotError('')
@@ -219,13 +227,8 @@ const LoginScreen = ({ setActiveScreen, setSession }: LoginScreenProps) => {
           </div>
         </div>
 
-        {/* # Remember Me + Forgot Password */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={rememberMe} onChange={() => setRememberMe(!rememberMe)} style={{ accentColor: '#7c3aed' }} />
-            <span style={{ fontSize: 13, color: '#6b7280' }}>Remember Me</span>
-          </label>
-        </div>
+        {/* # Spacer before Sign In button */}
+        <div style={{ marginBottom: 22 }} />
 
         {/* # Sign In button */}
         <button

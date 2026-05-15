@@ -15,8 +15,8 @@ import AllTimeOffScreen from './components/screens/AllTimeOffScreen'
 import AllStressDaysScreen from './components/screens/AllStressDaysScreen'
 import AllPublicHolidaysScreen from './components/screens/AllPublicHolidaysScreen'
 import ProfileScreen from './components/screens/ProfileScreen'
-import EditProfileScreen from './components/screens/EditProfileScreen'
 import SettingsScreen from './components/screens/SettingsScreen'
+import WhosAwayScreen from './components/screens/WhosAwayScreen'
 
 const App = () => {
   const [activeScreen, setActiveScreen] = useState<ScreenName>('login')
@@ -88,13 +88,14 @@ const App = () => {
             session={session}
           />
         )}
-        {activeScreen === 'editProfile' && (
-          <EditProfileScreen
-            setActiveScreen={setActiveScreen}
-          />
-        )}
         {activeScreen === 'settings' && (
           <SettingsScreen
+            setActiveScreen={setActiveScreen}
+            session={session}
+          />
+        )}
+        {activeScreen === 'whosAway' && (
+          <WhosAwayScreen
             setActiveScreen={setActiveScreen}
             session={session}
           />

@@ -13,6 +13,7 @@ export interface UserSession {
   partnerId: number
   sessionId: string
   employeeId: number | null
+  isAdmin: boolean
 }
 
 // # Get session id from localStorage
@@ -46,6 +47,30 @@ export const loadSession = (): UserSession | null => {
 // # Clear session from localStorage
 export const clearSession = (): void => {
   localStorage.removeItem('sns_session')
+}
+
+// # Check if current session user belongs to the admin group
+const checkIsAdmin = async (): Promise<boolean> => {
+  try {
+    const res = await fetch('/web/dataset/call_kw/res.users/has_group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 99,
+        params: {
+          model: 'res.users',
+          method: 'has_group',
+          args: ['base.group_system'],
+          kwargs: {},
+        },
+      }),
+    })
+    const data = await res.json()
+    return data.result === true
+  } catch {
+    return false
+  }
 }
 
 // # Login — calls Odoo authenticate endpoint
@@ -82,58 +107,82 @@ export const loginApi = async (
 
   const result = data.result
 
-  // # Fetch employee id using the fresh session id
   const employeeId = await fetchEmployeeId(result.uid, result.session_id)
 
-  const session: UserSession = {
+  // # Save a preliminary session first so checkIsAdmin()/getSessionId() works
+  const prelimSession: UserSession = {
     uid: result.uid,
     name: result.name,
     username: result.username,
     partnerId: result.partner_id,
     sessionId: result.session_id,
     employeeId,
+    isAdmin: false,
   }
+  saveSession(prelimSession)
 
-  // # Save session immediately so getSessionId() works everywhere
+  // # Now check admin — session cookie and getSessionId() are both ready
+  const isAdmin = result.is_system === true || result.is_superuser === true || await checkIsAdmin()
+
+  const session: UserSession = { ...prelimSession, isAdmin }
   saveSession(session)
 
   return session
 }
 
-// # Fetch employee ID linked to Odoo user
+// # Fetch employee ID linked to Odoo user — tries 2 methods
 const fetchEmployeeId = async (
   userId: number,
   sessionId: string
 ): Promise<number | null> => {
+  // # Method 1: read employee_id directly from res.users (most reliable)
   try {
-    const response = await fetch(
-      '/web/dataset/call_kw/hr.employee/search_read',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'call',
-          id: 2,
-          params: {
-            session_id: sessionId,
-            model: 'hr.employee',
-            method: 'search_read',
-            args: [[['user_id', '=', userId]]],
-            kwargs: { fields: ['id', 'name'] },
-          },
-        }),
-      }
-    )
+    const response = await fetch('/web/dataset/call_kw/res.users/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 2,
+        params: {
+          session_id: sessionId,
+          model: 'res.users',
+          method: 'read',
+          args: [[userId], ['employee_id']],
+          kwargs: {},
+        },
+      }),
+    })
+    const data = await response.json()
+    const empField = data.result?.[0]?.employee_id
+    if (empField && empField !== false) {
+      return Array.isArray(empField) ? empField[0] : empField
+    }
+  } catch { /* fall through to method 2 */ }
+
+  // # Method 2: search hr.employee by user_id (fallback)
+  try {
+    const response = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 2,
+        params: {
+          session_id: sessionId,
+          model: 'hr.employee',
+          method: 'search_read',
+          args: [[['user_id', '=', userId]]],
+          kwargs: { fields: ['id', 'name'] },
+        },
+      }),
+    })
     const data = await response.json()
     if (data.result && data.result.length > 0) {
       return data.result[0].id
     }
-    return null
-  } catch {
-    return null
-  }
+  } catch { /* silent */ }
+
+  return null
 }
 
 // # Logout — calls Odoo session destroy endpoint
@@ -155,39 +204,4 @@ export const logoutApi = async (): Promise<void> => {
   } catch {
     // # Silent fail — clear session regardless
   }
-}
-// # Make Odoo API call — works on both PC and mobile
-export const odooCall = async (
-  model: string,
-  method: string,
-  args: unknown[],
-  kwargs: Record<string, unknown> = {},
-  id: number = 1
-): Promise<unknown> => {
-  const sessionId = getSessionId()
-  const response = await fetch(
-    `/web/dataset/call_kw/${model}/${method}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'call',
-        id,
-        params: {
-          model,
-          method,
-          args,
-          kwargs,
-          session_id: sessionId,
-        },
-      }),
-    }
-  )
-  const data = await response.json()
-  if (data.error) {
-    throw new Error(data.error.data?.message || data.error.message || 'API Error')
-  }
-  return data.result
 }

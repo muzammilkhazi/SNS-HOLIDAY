@@ -1,5 +1,5 @@
 // ============================================
-// sns-holiday-app — Logout Screen (Dynamic)
+// sns-holiday-app — Logout Screen
 // ============================================
 
 import { useState } from 'react'
@@ -15,15 +15,13 @@ interface LogoutScreenProps {
 
 const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProps) => {
   const [loading, setLoading] = useState<boolean>(false)
-  const [showPopup, setShowPopup] = useState<boolean>(true)
 
-  // # Handle logout — calls real Odoo API
   const handleLogout = async () => {
     setLoading(true)
     try {
       await logoutApi()
     } catch {
-      // # Even if API fails still clear local session
+      // # Even if API fails, still clear local session
     } finally {
       clearSession()
       setSession(null)
@@ -74,7 +72,7 @@ const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProp
 
       <div style={{ flex: 1 }} />
 
-      {/* # Logged in user info card */}
+      {/* # Confirmation card */}
       <div style={{
         zIndex: 1, marginLeft: 20, marginRight: 20,
         backgroundColor: '#ffffff', borderRadius: 28,
@@ -90,7 +88,7 @@ const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProp
           </div>
         </div>
 
-        {/* # Logout icon */}
+        {/* # Icon */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
           <div style={{
             width: 64, height: 64, borderRadius: 20,
@@ -106,7 +104,7 @@ const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProp
           Sign Out
         </h2>
         <p style={{ fontSize: 13, color: '#9ca3af', marginBottom: 20, textAlign: 'center', lineHeight: 1.6 }}>
-          You are currently signed in as
+          Are you sure you want to sign out?
         </p>
 
         {/* # User info */}
@@ -134,21 +132,23 @@ const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProp
           <div style={{ marginLeft: 'auto', width: 10, height: 10, borderRadius: '50%', backgroundColor: '#22c55e' }} />
         </div>
 
-        {/* # Sign Out button — opens popup */}
+        {/* # Confirm sign out */}
         <button
-          onClick={() => setShowPopup(true)}
+          onClick={handleLogout}
+          disabled={loading}
           style={{
             width: '100%', padding: '14px', borderRadius: 12,
             fontSize: 15, fontWeight: 700, color: '#ffffff',
-            background: 'linear-gradient(135deg, #dc2626 0%, #db2777 100%)',
-            cursor: 'pointer', border: 'none',
-            boxShadow: '0 6px 24px rgba(220,38,38,0.35)',
+            background: loading ? '#d1d5db' : 'linear-gradient(135deg, #dc2626 0%, #db2777 100%)',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            border: 'none',
+            boxShadow: loading ? 'none' : '0 6px 24px rgba(220,38,38,0.35)',
             marginBottom: 12, transition: 'all 0.2s',
           }}>
-          🚪 Sign Out
+          {loading ? '⏳ Signing out...' : '🚪 Yes, Sign Out'}
         </button>
 
-        {/* # Cancel button */}
+        {/* # Cancel */}
         <button
           onClick={handleCancel}
           style={{
@@ -166,92 +166,6 @@ const LogoutScreen = ({ setActiveScreen, setSession, session }: LogoutScreenProp
       <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)', paddingBottom: 24, zIndex: 1 }}>
         © 2026 SNS Fashion Ltd. All rights reserved.
       </p>
-
-      {/* # Popup confirmation */}
-      {showPopup && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 50,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex', alignItems: 'center',
-            justifyContent: 'center', padding: '0 24px',
-          }}
-          onClick={() => setShowPopup(false)}>
-          <div
-            style={{
-              backgroundColor: '#ffffff', borderRadius: 24,
-              padding: '28px 24px', width: '100%', maxWidth: 340,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            }}
-            onClick={(e) => e.stopPropagation()}>
-
-            {/* # Popup icon */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-              <div style={{
-                width: 64, height: 64, borderRadius: 20,
-                backgroundColor: '#fef2f2',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                borderWidth: 1, borderColor: '#fecaca',
-              }}>
-                <span style={{ fontSize: 28 }}>🚪</span>
-              </div>
-            </div>
-
-            {/* # Popup title */}
-            <h3 style={{
-              fontSize: 18, fontWeight: 800,
-              color: '#1a1035', textAlign: 'center', marginBottom: 8,
-            }}>
-              Are you sure?
-            </h3>
-
-            {/* # Popup message */}
-            <p style={{
-              fontSize: 13, color: '#9ca3af',
-              textAlign: 'center', lineHeight: 1.6, marginBottom: 8,
-            }}>
-              Are you sure you want to sign out?
-            </p>
-            <p style={{
-              fontSize: 13, fontWeight: 700,
-              color: '#1a1035', textAlign: 'center',
-              marginBottom: 24,
-            }}>
-              {session?.name || 'SNS Employee'}
-            </p>
-
-            {/* # Divider */}
-            <div style={{ borderTopWidth: 1, borderColor: '#f3f4f6', marginBottom: 16 }} />
-
-            {/* # Popup buttons */}
-            <button
-              onClick={handleLogout}
-              disabled={loading}
-              style={{
-                width: '100%', padding: '14px', borderRadius: 12,
-                fontSize: 15, fontWeight: 700, color: '#ffffff',
-                background: loading ? '#d1d5db' : 'linear-gradient(135deg, #dc2626 0%, #db2777 100%)',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                border: 'none',
-                boxShadow: loading ? 'none' : '0 4px 16px rgba(220,38,38,0.3)',
-                marginBottom: 10, transition: 'all 0.2s',
-              }}>
-              {loading ? '⏳ Signing out...' : '✅ Yes, Sign Out'}
-            </button>
-
-            <button
-              onClick={() => setShowPopup(false)}
-              style={{
-                width: '100%', padding: '14px', borderRadius: 12,
-                fontSize: 15, fontWeight: 700, color: '#7c3aed',
-                background: '#f3f0ff', cursor: 'pointer',
-                border: 'none', transition: 'all 0.2s',
-              }}>
-              No, Stay Signed In
-            </button>
-          </div>
-        </div>
-      )}
 
     </div>
   )

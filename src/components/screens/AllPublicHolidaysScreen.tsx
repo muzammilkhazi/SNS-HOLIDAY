@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react'
 import type { ScreenName } from '../../types'
+import { getSessionId } from '../../services/api'
 import { CalendarIcon, ChevronRightIcon } from '../icons/Icons'
 import BottomNav from '../BottomNav'
 import { colors } from '../../constants/colors'
@@ -42,11 +43,11 @@ const AllPublicHolidaysScreen = ({ setActiveScreen }: AllPublicHolidaysScreenPro
       body: JSON.stringify({
         jsonrpc: '2.0', method: 'call', id: 8,
         params: {
+          session_id: getSessionId(),
           model: 'resource.calendar.leaves',
           method: 'search_read',
           args: [[
             ['name', 'not ilike', 'Time Off'],
-            ['name', 'not ilike', 'Test'],
             ['resource_id', '=', false],
           ]],
           kwargs: {
@@ -80,7 +81,7 @@ const AllPublicHolidaysScreen = ({ setActiveScreen }: AllPublicHolidaysScreenPro
         <div className="flex items-center justify-between">
           <button onClick={() => setActiveScreen('dashboard')}
             className="p-2 rounded-full backdrop-blur-sm"
-            style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
+            style={{ backgroundColor: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer' }}>
             <ChevronRightIcon className="w-5 h-5 text-white rotate-180" />
           </button>
           <div className="flex-1 text-center">

@@ -5,7 +5,6 @@
 import { useState } from 'react'
 import type { ScreenName } from '../../types'
 import type { UserSession } from '../../services/api'
-import { clearSession, logoutApi } from '../../services/api'
 import { ChevronRightIcon } from '../icons/Icons'
 import BottomNav from '../BottomNav'
 import { colors } from '../../constants/colors'
@@ -66,20 +65,6 @@ For privacy-related queries, please contact your HR department.`
 
 const SettingsScreen = ({ setActiveScreen, session }: SettingsScreenProps) => {
   const [modal, setModal] = useState<'terms' | 'privacy' | null>(null)
-  const [signingOut, setSigningOut] = useState(false)
-
-  const handleSignOut = async () => {
-    setSigningOut(true)
-    try {
-      await logoutApi()
-    } catch {
-      // # Silent fail — clear session regardless
-    } finally {
-      clearSession()
-      setSigningOut(false)
-      setActiveScreen('login')
-    }
-  }
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.background }}>
@@ -221,30 +206,11 @@ const SettingsScreen = ({ setActiveScreen, session }: SettingsScreenProps) => {
 
         </div>
 
-        {/* # Sign Out Button */}
-        <button
-          onClick={handleSignOut}
-          disabled={signingOut}
-          style={{
-            width: '100%',
-            padding: '15px 16px',
-            borderRadius: 16,
-            backgroundColor: signingOut ? '#fca5a5' : '#fee2e2',
-            border: '1px solid #fca5a5',
-            cursor: signingOut ? 'not-allowed' : 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}>
-          <span style={{ fontSize: 18 }}>🚪</span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#dc2626' }}>
-            {signingOut ? 'Signing Out...' : 'Sign Out'}
-          </span>
-        </button>
-
         {/* # Logged in as */}
         {session?.name && (
           <p style={{
             textAlign: 'center', fontSize: 12,
-            color: colors.textMuted, marginTop: 12,
+            color: colors.textMuted, marginTop: 4,
           }}>
             Signed in as {session.name}
           </p>
