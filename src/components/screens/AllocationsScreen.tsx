@@ -2,7 +2,7 @@
 // sns-holiday-app — Allocations Screen
 // ============================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { ScreenName } from '../../types'
 import type { UserSession } from '../../services/api'
 import { loadSession, getSessionId } from '../../services/api'
@@ -44,6 +44,7 @@ const FilterIcon = ({ className, style }: { className?: string; style?: React.CS
 
 const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps) => {
   const [isAdmin, setIsAdmin]               = useState<boolean>(session?.isAdmin === true)
+  const isAdminRef                          = useRef(session?.isAdmin === true)
   const [allocations, setAllocations]       = useState<Allocation[]>([])
   const [loading, setLoading]               = useState(true)
   const [statusFilter, setStatusFilter]     = useState<string>('all')
@@ -53,15 +54,22 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
   const [selectedLeaveTypes, setSelectedLeaveTypes] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    // # Resolve admin status first, then fetch with the correct domain
     const init = async () => {
       let admin = session?.isAdmin === true
-      if (session?.isAdmin === undefined) {
-        admin = await resolveAdminStatus()
-      }
+      if (session?.isAdmin === undefined) admin = await resolveAdminStatus()
+      isAdminRef.current = admin
       await fetchAllocations(admin)
     }
     init()
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchAllocations(isAdminRef.current) }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    const interval = setInterval(() => fetchAllocations(isAdminRef.current), 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      clearInterval(interval)
+    }
   }, [])
 
   // # Returns resolved admin boolean and updates state
@@ -284,7 +292,6 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
                 : `${allocations.length} allocation${allocations.length !== 1 ? 's' : ''}`}
             </p>
           </div>
-          {/* # Filter icon — badge shows selected type count */}
           <button onClick={() => setShowFilterPopup(true)}
             className="p-2 rounded-full backdrop-blur-sm relative"
             style={{ backgroundColor: hasTypeFilter ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer' }}>

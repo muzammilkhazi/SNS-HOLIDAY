@@ -1,0 +1,342 @@
+{
+  "info": {
+    "name": "SNS Holiday App — Odoo API",
+    "_postman_id": "sns-holiday-app-v1",
+    "description": "All Odoo JSONRPC API endpoints used by the SNS Holiday App.\nBase URL: https://qc.taskdun.com\nAll requests use POST with Content-Type: application/json.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://qc.taskdun.com" },
+    { "key": "db",       "value": "sns_qc_v1" },
+    { "key": "session_id", "value": "" },
+    { "key": "employee_id", "value": "" },
+    { "key": "user_id",  "value": "" }
+  ],
+  "item": [
+
+    {
+      "name": "🔐 Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/session/authenticate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 1,\n  \"params\": {\n    \"db\": \"{{db}}\",\n    \"login\": \"your_username\",\n    \"password\": \"your_password\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/session/destroy",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 2,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Session Info",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/session/get_session_info",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 3,\n  \"params\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "Check Is Admin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/res.users/has_group",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 99,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"res.users\",\n    \"method\": \"has_group\",\n    \"args\": [\"base.group_system\"],\n    \"kwargs\": {}\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "👤 User & Employee",
+      "item": [
+        {
+          "name": "Get User Employee ID",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/res.users/read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 4,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"res.users\",\n    \"method\": \"read\",\n    \"args\": [[{{user_id}}], [\"employee_id\"]],\n    \"kwargs\": {}\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Employee by User ID (fallback)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.employee/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 5,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.employee\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"user_id\", \"=\", {{user_id}}]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\"],\n      \"limit\": 1\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Employee Department",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.employee/read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 55,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.employee\",\n    \"method\": \"read\",\n    \"args\": [[{{employee_id}}], [\"department_id\"]],\n    \"kwargs\": {}\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📋 Leave Types",
+      "item": [
+        {
+          "name": "Get All Leave Types",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.type/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 11,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.type\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"active\", \"=\", true]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\"],\n      \"order\": \"name asc\",\n      \"context\": { \"employee_id\": \"{{employee_id}}\" }\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Business Trip Leave Type",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.type/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 111,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.type\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"name\", \"ilike\", \"business\"]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\"],\n      \"context\": { \"active_test\": false }\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Leave Balance for Employee",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.type/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 77,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.type\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"id\", \"=\", 1]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\", \"virtual_remaining_leaves\"],\n      \"context\": { \"employee_id\": \"{{employee_id}}\" }\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Leave Type Custom Fields",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave/fields_get",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 14,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave\",\n    \"method\": \"fields_get\",\n    \"args\": [],\n    \"kwargs\": { \"attributes\": [\"string\", \"type\"] }\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📅 Leave Requests",
+      "item": [
+        {
+          "name": "Get My Leave Requests (Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 7,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"holiday_type\", \"=\", \"employee\"], [\"employee_id\", \"=\", {{employee_id}}]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\", \"holiday_status_id\", \"request_date_from\", \"request_date_to\", \"number_of_days\", \"state\", \"employee_id\"],\n      \"order\": \"request_date_from desc\",\n      \"limit\": 100\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get All Leave Requests (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 7,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"holiday_type\", \"=\", \"employee\"]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\", \"holiday_status_id\", \"request_date_from\", \"request_date_to\", \"number_of_days\", \"state\", \"employee_id\"],\n      \"order\": \"request_date_from desc\",\n      \"limit\": 100\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Leave Request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 12,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave\",\n    \"method\": \"create\",\n    \"args\": [{\n      \"holiday_status_id\": 1,\n      \"request_date_from\": \"2026-06-08\",\n      \"request_date_to\": \"2026-06-10\",\n      \"date_from\": \"2026-06-08 09:00:00\",\n      \"date_to\": \"2026-06-10 18:00:00\",\n      \"employee_id\": {{employee_id}},\n      \"name\": \"Personal Leave | Note: Doctor visit\"\n    }],\n    \"kwargs\": {}\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Who's Away Today",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 20,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"state\", \"in\", [\"validate\", \"validate1\"]], [\"request_date_from\", \"<=\", \"2026-05-16\"], [\"request_date_to\", \">=\", \"2026-05-16\"], [\"holiday_type\", \"=\", \"employee\"]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"employee_id\", \"holiday_status_id\", \"request_date_from\", \"request_date_to\"],\n      \"order\": \"employee_id asc\",\n      \"limit\": 50\n    }\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📊 Allocations",
+      "item": [
+        {
+          "name": "Get My Allocations (Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.allocation/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 6,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.allocation\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"employee_id\", \"=\", {{employee_id}}]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"holiday_status_id\", \"number_of_days\", \"state\", \"date_from\", \"date_to\", \"employee_id\"],\n      \"order\": \"id desc\",\n      \"limit\": 100\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get All Allocations (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.allocation/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 6,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.allocation\",\n    \"method\": \"search_read\",\n    \"args\": [[]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"holiday_status_id\", \"number_of_days\", \"state\", \"date_from\", \"date_to\", \"employee_id\"],\n      \"order\": \"id desc\",\n      \"limit\": 100\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Check Pending Allocations for Leave Type",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.allocation/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 78,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.allocation\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"employee_id\", \"=\", {{employee_id}}], [\"holiday_status_id\", \"=\", 1], [\"state\", \"in\", [\"draft\", \"confirm\"]]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"state\"],\n      \"limit\": 1\n    }\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "⚡ Stress Days",
+      "item": [
+        {
+          "name": "Get Stress Days (Department Filtered)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.stress.day/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 10,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.stress.day\",\n    \"method\": \"search_read\",\n    \"args\": [[\"|\", [\"department_ids\", \"=\", false], [\"department_ids\", \"in\", [1]]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\", \"start_date\", \"end_date\", \"color\"],\n      \"order\": \"start_date asc\",\n      \"limit\": 50\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get All Stress Days (No Filter)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave.stress.day/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 10,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave.stress.day\",\n    \"method\": \"search_read\",\n    \"args\": [[]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\", \"start_date\", \"end_date\", \"color\"],\n      \"order\": \"start_date asc\"\n    }\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🏖️ Public Holidays",
+      "item": [
+        {
+          "name": "Get Public Holidays",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/resource.calendar.leaves/search_read",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 8,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"resource.calendar.leaves\",\n    \"method\": \"search_read\",\n    \"args\": [[[\"name\", \"not ilike\", \"Time Off\"], [\"resource_id\", \"=\", false]]],\n    \"kwargs\": {\n      \"fields\": [\"id\", \"name\", \"date_from\", \"date_to\"],\n      \"order\": \"date_from asc\"\n    }\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📎 Attachments",
+      "item": [
+        {
+          "name": "Upload Supporting Document (Binary field)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/hr.leave/write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 15,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"hr.leave\",\n    \"method\": \"write\",\n    \"args\": [[123], { \"x_studio_supporting_document\": \"<base64_encoded_file>\" }],\n    \"kwargs\": {}\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Upload Attachment (ir.attachment)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/web/dataset/call_kw/ir.attachment/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"id\": 13,\n  \"params\": {\n    \"session_id\": \"{{session_id}}\",\n    \"model\": \"ir.attachment\",\n    \"method\": \"create\",\n    \"args\": [{\n      \"name\": \"document.pdf\",\n      \"res_model\": \"hr.leave\",\n      \"res_id\": 123,\n      \"datas\": \"<base64_encoded_file>\",\n      \"type\": \"binary\"\n    }],\n    \"kwargs\": {}\n  }\n}"
+            }
+          }
+        }
+      ]
+    }
+
+  ]
+}

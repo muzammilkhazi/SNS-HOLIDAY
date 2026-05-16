@@ -4,7 +4,8 @@
 
 import { useState, useEffect } from 'react'
 import type { ScreenName } from '../../types'
-import { getSessionId } from '../../services/api'
+import type { UserSession } from '../../services/api'
+import { getSessionId, loadSession } from '../../services/api'
 import { CalendarIcon, ChevronRightIcon } from '../icons/Icons'
 import BottomNav from '../BottomNav'
 import { colors } from '../../constants/colors'
@@ -18,6 +19,7 @@ interface PublicHoliday {
 
 interface AllPublicHolidaysScreenProps {
   setActiveScreen: (screen: ScreenName) => void
+  session?: UserSession | null
 }
 
 const ACCENT_COLORS = [
@@ -25,46 +27,98 @@ const ACCENT_COLORS = [
   '#d97706', '#dc2626', '#2563eb', '#7c3aed',
 ]
 
-const AllPublicHolidaysScreen = ({ setActiveScreen }: AllPublicHolidaysScreenProps) => {
+const AllPublicHolidaysScreen = ({ setActiveScreen, session }: AllPublicHolidaysScreenProps) => {
   const [holidays, setHolidays] = useState<PublicHoliday[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchPublicHolidays()
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchPublicHolidays() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    const interval = setInterval(fetchPublicHolidays, 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      clearInterval(interval)
+    }
   }, [])
 
   const fetchPublicHolidays = async () => {
-  setLoading(true)
-  try {
-    const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: 8,
-        params: {
-          session_id: getSessionId(),
-          model: 'resource.calendar.leaves',
-          method: 'search_read',
-          args: [[
-            ['name', 'not ilike', 'Time Off'],
-            ['resource_id', '=', false],
-          ]],
-          kwargs: {
-            fields: ['id', 'name', 'date_from', 'date_to'],
-            order: 'date_from asc',
+    setLoading(true)
+    try {
+      const currentSession = session || loadSession()
+      let employeeId = currentSession?.employeeId
+
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 59,
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['employee_id']], kwargs: {} },
+            }),
+          })
+          const userData = await userRes.json()
+          const empField = userData.result?.[0]?.employee_id
+          if (empField && empField !== false) employeeId = Array.isArray(empField) ? empField[0] : empField
+        } catch { /* silent */ }
+      }
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 60,
+              params: { session_id: getSessionId(), model: 'hr.employee', method: 'search_read', args: [[['user_id', '=', currentSession.uid]]], kwargs: { fields: ['id'], limit: 1 } },
+            }),
+          })
+          const empData = await empRes.json()
+          if (empData.result?.length > 0) employeeId = empData.result[0].id
+        } catch { /* silent */ }
+      }
+
+      // # Filter by employee's company — calendar_id is not set on these records
+      let companyId: number | null = null
+      if (employeeId) {
+        try {
+          const empRes = await fetch('/web/dataset/call_kw/hr.employee/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 61,
+              params: { session_id: getSessionId(), model: 'hr.employee', method: 'read', args: [[employeeId], ['company_id']], kwargs: {} },
+            }),
+          })
+          const empData = await empRes.json()
+          const compField = empData.result?.[0]?.company_id
+          if (compField && compField !== false) companyId = Array.isArray(compField) ? compField[0] : compField
+        } catch { /* silent */ }
+      }
+
+      const domain: unknown[] = [['name', 'not ilike', 'Time Off'], ['resource_id', '=', false]]
+      if (companyId) domain.push(['company_id', '=', companyId])
+
+      const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 8,
+          params: {
+            session_id: getSessionId(), model: 'resource.calendar.leaves', method: 'search_read',
+            args: [domain],
+            kwargs: { fields: ['id', 'name', 'date_from', 'date_to'], order: 'date_from asc' },
           },
-        },
-      }),
-    })
-    const data = await res.json()
-    if (data.result) setHolidays(data.result)
-  } catch (err) {
-    console.error('Error fetching public holidays:', err)
-  } finally {
-    setLoading(false)
+        }),
+      })
+      const data = await res.json()
+      if (data.result) setHolidays(data.result)
+    } catch (err) {
+      console.error('Error fetching public holidays:', err)
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return ''

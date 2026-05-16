@@ -58,6 +58,16 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
   useEffect(() => {
     fetchDashboardData()
     if (session?.isAdmin === undefined) checkAdminStatus()
+
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchDashboardData() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    const interval = setInterval(fetchDashboardData, 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      clearInterval(interval)
+    }
   }, [])
 
   const checkAdminStatus = async () => {
@@ -92,40 +102,28 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
     const currentSession = session || loadSession()
     let employeeId = currentSession?.employeeId
 
-    // # Method 1: read employee_id directly from res.users record
     if (!employeeId && currentSession?.uid) {
       try {
         const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({
             jsonrpc: '2.0', method: 'call', id: 3,
-            params: {
-              session_id: getSessionId(), model: 'res.users', method: 'read',
-              args: [[currentSession.uid], ['employee_id']],
-              kwargs: {},
-            },
+            params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['employee_id']], kwargs: {} },
           }),
         })
         const userData = await userRes.json()
         const empField = userData.result?.[0]?.employee_id
-        if (empField && empField !== false) {
-          employeeId = Array.isArray(empField) ? empField[0] : empField
-        }
+        if (empField && empField !== false) employeeId = Array.isArray(empField) ? empField[0] : empField
       } catch { /* silent */ }
     }
 
-    // # Method 2: search hr.employee by user_id (fallback)
     if (!employeeId && currentSession?.uid) {
       try {
         const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({
             jsonrpc: '2.0', method: 'call', id: 6,
-            params: {
-              session_id: getSessionId(), model: 'hr.employee', method: 'search_read',
-              args: [[['user_id', '=', currentSession.uid]]],
-              kwargs: { fields: ['id'], limit: 1 },
-            },
+            params: { session_id: getSessionId(), model: 'hr.employee', method: 'search_read', args: [[['user_id', '=', currentSession.uid]]], kwargs: { fields: ['id'], limit: 1 } },
           }),
         })
         const empData = await empRes.json()
@@ -135,58 +133,67 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
 
     if (!employeeId) return
 
-    // # Fetch approved allocations + approved leaves taken in parallel
-    const [allocRes, takenRes] = await Promise.all([
-      fetch('/web/dataset/call_kw/hr.leave.allocation/search_read', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({
-          jsonrpc: '2.0', method: 'call', id: 4,
-          params: {
-            session_id: getSessionId(), model: 'hr.leave.allocation', method: 'search_read',
-            args: [[['employee_id', '=', employeeId], ['state', 'in', ['validate', 'validate1']]]],
-            kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id'] },
-          },
+    try {
+      const [allocRes, takenRes] = await Promise.all([
+        fetch('/web/dataset/call_kw/hr.leave.allocation/search_read', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({
+            jsonrpc: '2.0', method: 'call', id: 4,
+            params: {
+              session_id: getSessionId(), model: 'hr.leave.allocation', method: 'search_read',
+              args: [[['employee_id', '=', employeeId], ['state', 'in', ['validate', 'validate1']]]],
+              kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id', 'number_of_days_display'] },
+            },
+          }),
         }),
-      }),
-      fetch('/web/dataset/call_kw/hr.leave/search_read', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({
-          jsonrpc: '2.0', method: 'call', id: 5,
-          params: {
-            session_id: getSessionId(), model: 'hr.leave', method: 'search_read',
-            args: [[['employee_id', '=', employeeId], ['state', 'in', ['validate', 'validate1']], ['holiday_type', '=', 'employee']]],
-            kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id'] },
-          },
+        fetch('/web/dataset/call_kw/hr.leave/search_read', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({
+            jsonrpc: '2.0', method: 'call', id: 5,
+            params: {
+              session_id: getSessionId(), model: 'hr.leave', method: 'search_read',
+              args: [[['employee_id', '=', employeeId], ['state', 'in', ['validate', 'validate1']], ['holiday_type', '=', 'employee']]],
+              kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id'] },
+            },
+          }),
         }),
-      }),
-    ])
+      ])
 
-    const allocData = await allocRes.json()
-    const takenData = await takenRes.json()
-    if (!allocData.result) return
+      const allocData = await allocRes.json()
+      const takenData = await takenRes.json()
+      console.log('[DEBUG] allocations:', JSON.stringify(allocData.result, null, 2))
 
-    const allocated: Record<string, number> = {}
-    const typeIds: Record<string, number> = {}
-    allocData.result.forEach((a: { holiday_status_id: [number, string]; number_of_days: number }) => {
-      const name = a.holiday_status_id[1]; const id = a.holiday_status_id[0]
-      allocated[name] = (allocated[name] || 0) + a.number_of_days
-      typeIds[name] = id
-    })
+      if (!allocData.result) return
 
-    const taken: Record<string, number> = {}
-    if (takenData.result) {
-      takenData.result.forEach((t: { holiday_status_id: [number, string]; number_of_days: number }) => {
-        const name = t.holiday_status_id[1]
-        taken[name] = (taken[name] || 0) + Math.abs(t.number_of_days)
+      const allocated: Record<string, number> = {}
+      const typeIds: Record<string, number> = {}
+      allocData.result.forEach((a: { holiday_status_id: [number, string]; number_of_days: number; number_of_days_display?: number }) => {
+        const name = a.holiday_status_id[1]
+        const id   = a.holiday_status_id[0]
+        const days = a.number_of_days_display ?? a.number_of_days
+        allocated[name] = (allocated[name] || 0) + Math.abs(days)
+        typeIds[name] = id
       })
-    }
 
-    const types: LeaveType[] = Object.keys(allocated).map(name => {
-      const max = allocated[name]; const usedDays = taken[name] || 0
-      const remaining = Math.max(max - usedDays, 0)
-      return { id: typeIds[name], name, max_leaves: max, leaves_taken: usedDays, remaining_leaves: remaining, virtual_remaining_leaves: remaining }
-    })
-    setLeaveTypes(types)
+      const taken: Record<string, number> = {}
+      if (takenData.result) {
+        takenData.result.forEach((t: { holiday_status_id: [number, string]; number_of_days: number }) => {
+          const name = t.holiday_status_id[1]
+          taken[name] = (taken[name] || 0) + Math.abs(t.number_of_days)
+        })
+      }
+
+      const types: LeaveType[] = Object.keys(allocated).map(name => {
+        const max      = allocated[name]
+        const usedDays = taken[name] || 0
+        const remaining = Math.max(max - usedDays, 0)
+        return { id: typeIds[name], name, max_leaves: max, leaves_taken: usedDays, remaining_leaves: remaining, virtual_remaining_leaves: remaining }
+      })
+      console.log('[DEBUG] leaveTypes built:', JSON.stringify(types, null, 2))
+      setLeaveTypes(types)
+    } catch (err) {
+      console.error('fetchLeaveTypes error:', err)
+    }
   }
 
   const fetchAwayToday = async () => {
@@ -210,13 +217,76 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
 
   const fetchStressDays = async () => {
     try {
+      // # Get employee's department first
+      let deptId: number | null = null
+      const currentSession = session || loadSession()
+      let employeeId = currentSession?.employeeId
+
+      // # Resolve employeeId via uid if not in session (same fallback as fetchLeaveTypes)
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 57,
+              params: {
+                session_id: getSessionId(), model: 'res.users', method: 'read',
+                args: [[currentSession.uid], ['employee_id']], kwargs: {},
+              },
+            }),
+          })
+          const userData = await userRes.json()
+          const empField = userData.result?.[0]?.employee_id
+          if (empField && empField !== false) employeeId = Array.isArray(empField) ? empField[0] : empField
+        } catch { /* silent */ }
+      }
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 58,
+              params: {
+                session_id: getSessionId(), model: 'hr.employee', method: 'search_read',
+                args: [[['user_id', '=', currentSession.uid]]],
+                kwargs: { fields: ['id'], limit: 1 },
+              },
+            }),
+          })
+          const empData = await empRes.json()
+          if (empData.result?.length > 0) employeeId = empData.result[0].id
+        } catch { /* silent */ }
+      }
+
+      if (employeeId) {
+        const empRes = await fetch('/web/dataset/call_kw/hr.employee/read', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({
+            jsonrpc: '2.0', method: 'call', id: 55,
+            params: {
+              session_id: getSessionId(), model: 'hr.employee', method: 'read',
+              args: [[employeeId], ['department_id']], kwargs: {},
+            },
+          }),
+        })
+        const empData = await empRes.json()
+        const deptField = empData.result?.[0]?.department_id
+        if (deptField && deptField !== false) deptId = Array.isArray(deptField) ? deptField[0] : deptField
+      }
+      const year = new Date().getFullYear()
+      const yearStart = `${year}-01-01`
+      const yearEnd   = `${year}-12-31`
+      const domain = deptId
+        ? ['|', ['department_ids', '=', false], ['department_ids', 'in', [deptId]],
+           ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
+        : [['department_ids', '=', false], ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
       const res = await fetch('/web/dataset/call_kw/hr.leave.stress.day/search_read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           jsonrpc: '2.0', method: 'call', id: 10,
           params: {
             session_id: getSessionId(), model: 'hr.leave.stress.day', method: 'search_read',
-            args: [[]],
+            args: [domain],
             kwargs: { fields: ['id', 'name', 'start_date', 'end_date', 'color'], order: 'start_date asc', limit: 10 },
           },
         }),
@@ -228,13 +298,64 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
 
   const fetchPublicHolidays = async () => {
     try {
+      const currentSession = session || loadSession()
+      let employeeId = currentSession?.employeeId
+
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 59,
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['employee_id']], kwargs: {} },
+            }),
+          })
+          const userData = await userRes.json()
+          const empField = userData.result?.[0]?.employee_id
+          if (empField && empField !== false) employeeId = Array.isArray(empField) ? empField[0] : empField
+        } catch { /* silent */ }
+      }
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 60,
+              params: { session_id: getSessionId(), model: 'hr.employee', method: 'search_read', args: [[['user_id', '=', currentSession.uid]]], kwargs: { fields: ['id'], limit: 1 } },
+            }),
+          })
+          const empData = await empRes.json()
+          if (empData.result?.length > 0) employeeId = empData.result[0].id
+        } catch { /* silent */ }
+      }
+
+      // # Filter public holidays by employee's company — calendar_id is not set on these records
+      let companyId: number | null = null
+      if (employeeId) {
+        try {
+          const empRes = await fetch('/web/dataset/call_kw/hr.employee/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 61,
+              params: { session_id: getSessionId(), model: 'hr.employee', method: 'read', args: [[employeeId], ['company_id']], kwargs: {} },
+            }),
+          })
+          const empData = await empRes.json()
+          const compField = empData.result?.[0]?.company_id
+          if (compField && compField !== false) companyId = Array.isArray(compField) ? compField[0] : compField
+        } catch { /* silent */ }
+      }
+
+      const domain: unknown[] = [['name', 'not ilike', 'Time Off'], ['resource_id', '=', false]]
+      if (companyId) domain.push(['company_id', '=', companyId])
+
       const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           jsonrpc: '2.0', method: 'call', id: 8,
           params: {
             session_id: getSessionId(), model: 'resource.calendar.leaves', method: 'search_read',
-            args: [[['name', 'not ilike', 'Time Off'], ['resource_id', '=', false]]],
+            args: [domain],
             kwargs: { fields: ['id', 'name', 'date_from', 'date_to'], order: 'date_from asc', limit: 5 },
           },
         }),

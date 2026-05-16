@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react'
 import type { ScreenName } from '../../types'
 import type { UserSession } from '../../services/api'
-import { getSessionId } from '../../services/api'
+import { getSessionId, loadSession } from '../../services/api'
 import { CalendarIcon, ChevronRightIcon, AlertCircleIcon } from '../icons/Icons'
 import BottomNav from '../BottomNav'
 import { colors } from '../../constants/colors'
@@ -30,33 +30,94 @@ const ODOO_COLORS: Record<number, string> = {
   8: '#ec4899', 9: '#6b7280', 10: '#78716c', 11: '#0ea5e9',
 }
 
-const AllStressDaysScreen = ({ setActiveScreen }: AllStressDaysScreenProps) => {
+const AllStressDaysScreen = ({ setActiveScreen, session }: AllStressDaysScreenProps) => {
   const [stressDays, setStressDays] = useState<StressDay[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchStressDays()
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchStressDays() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    const interval = setInterval(fetchStressDays, 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      clearInterval(interval)
+    }
   }, [])
 
   const fetchStressDays = async () => {
     setLoading(true)
     try {
+      // # Step 1: get employee's department
+      let deptId: number | null = null
+      const currentSession = session || loadSession()
+      let employeeId = currentSession?.employeeId
+
+      // # Resolve employeeId via uid if not in session
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 57,
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['employee_id']], kwargs: {} },
+            }),
+          })
+          const userData = await userRes.json()
+          const empField = userData.result?.[0]?.employee_id
+          if (empField && empField !== false) employeeId = Array.isArray(empField) ? empField[0] : empField
+        } catch { /* silent */ }
+      }
+      if (!employeeId && currentSession?.uid) {
+        try {
+          const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 58,
+              params: { session_id: getSessionId(), model: 'hr.employee', method: 'search_read', args: [[['user_id', '=', currentSession.uid]]], kwargs: { fields: ['id'], limit: 1 } },
+            }),
+          })
+          const empData = await empRes.json()
+          if (empData.result?.length > 0) employeeId = empData.result[0].id
+        } catch { /* silent */ }
+      }
+
+      if (employeeId) {
+        const empRes = await fetch('/web/dataset/call_kw/hr.employee/read', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({
+            jsonrpc: '2.0', method: 'call', id: 55,
+            params: {
+              session_id: getSessionId(), model: 'hr.employee', method: 'read',
+              args: [[employeeId], ['department_id']], kwargs: {},
+            },
+          }),
+        })
+        const empData = await empRes.json()
+        const deptField = empData.result?.[0]?.department_id
+        if (deptField && deptField !== false) deptId = Array.isArray(deptField) ? deptField[0] : deptField
+      }
+
+      // # Step 2: filter stress days — current year only, global (no dept) OR employee's dept
+      const year = new Date().getFullYear()
+      const yearStart = `${year}-01-01`
+      const yearEnd   = `${year}-12-31`
+      const domain = deptId
+        ? ['|', ['department_ids', '=', false], ['department_ids', 'in', [deptId]],
+           ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
+        : [['department_ids', '=', false], ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
+
       const res = await fetch('/web/dataset/call_kw/hr.leave.stress.day/search_read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           jsonrpc: '2.0', method: 'call', id: 10,
           params: {
             session_id: getSessionId(),
-            model: 'hr.leave.stress.day',
-            method: 'search_read',
-            args: [[]],
-            kwargs: {
-              fields: ['id', 'name', 'start_date', 'end_date', 'color'],
-              order: 'start_date asc',
-              limit: 50,
-            },
+            model: 'hr.leave.stress.day', method: 'search_read',
+            args: [domain],
+            kwargs: { fields: ['id', 'name', 'start_date', 'end_date', 'color'], order: 'start_date asc', limit: 50 },
           },
         }),
       })

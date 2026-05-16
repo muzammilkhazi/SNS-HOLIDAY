@@ -37,12 +37,17 @@ const WhosAwayScreen = ({ setActiveScreen, session }: WhosAwayScreenProps) => {
   const [selectedLeaveType, setSelectedLeaveType] = useState<string>('all')
 
   useEffect(() => {
-    // # Guard: redirect non-admins back to dashboard
-    if (session?.isAdmin === false) {
-      setActiveScreen('dashboard')
-      return
-    }
+    if (session?.isAdmin === false) { setActiveScreen('dashboard'); return }
     fetchData()
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchData() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    const interval = setInterval(fetchData, 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      clearInterval(interval)
+    }
   }, [])
 
   const toDateStr = (d: Date) => d.toISOString().split('T')[0]
@@ -241,8 +246,7 @@ const WhosAwayScreen = ({ setActiveScreen, session }: WhosAwayScreenProps) => {
               {activeCount} {activeCount === 1 ? 'person' : 'people'} away
             </p>
           </div>
-          <button
-            onClick={() => setShowFilterPopup(true)}
+          <button onClick={() => setShowFilterPopup(true)}
             className="p-2 rounded-full backdrop-blur-sm"
             style={{ backgroundColor: selectedLeaveType !== 'all' ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', position: 'relative' }}>
             <FilterIcon className="w-5 h-5 text-white" />

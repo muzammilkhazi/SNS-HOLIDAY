@@ -80,6 +80,7 @@ const App = () => {
         {activeScreen === 'allPublicHolidays' && (
           <AllPublicHolidaysScreen
             setActiveScreen={setActiveScreen}
+            session={session}
           />
         )}
         {activeScreen === 'profile' && (
