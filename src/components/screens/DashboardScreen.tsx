@@ -168,6 +168,7 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
       const allocated: Record<string, number> = {}
       const typeIds: Record<string, number> = {}
       allocData.result.forEach((a: { holiday_status_id: [number, string]; number_of_days: number; number_of_days_display?: number }) => {
+        if (!Array.isArray(a.holiday_status_id)) return
         const name = a.holiday_status_id[1]
         const id   = a.holiday_status_id[0]
         const days = a.number_of_days_display ?? a.number_of_days
@@ -178,6 +179,7 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
       const taken: Record<string, number> = {}
       if (takenData.result) {
         takenData.result.forEach((t: { holiday_status_id: [number, string]; number_of_days: number }) => {
+          if (!Array.isArray(t.holiday_status_id)) return
           const name = t.holiday_status_id[1]
           taken[name] = (taken[name] || 0) + Math.abs(t.number_of_days)
         })
@@ -211,7 +213,12 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
         }),
       })
       const data = await res.json()
-      if (data.result) setAwayToday(data.result)
+      if (data.result) setAwayToday(
+        data.result.filter((r: AwayEmployee) =>
+          Array.isArray(r.employee_id) && typeof r.employee_id[1] === 'string' &&
+          Array.isArray(r.holiday_status_id)
+        )
+      )
     } catch (err) { console.error('fetchAwayToday error:', err) }
   }
 
@@ -329,25 +336,26 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
         } catch { /* silent */ }
       }
 
-      // # Filter public holidays by employee's company — calendar_id is not set on these records
-      let companyId: number | null = null
-      if (employeeId) {
+      // # Get all companies the user belongs to
+      let companyIds: number[] = []
+      if (currentSession?.uid) {
         try {
-          const empRes = await fetch('/web/dataset/call_kw/hr.employee/read', {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({
               jsonrpc: '2.0', method: 'call', id: 61,
-              params: { session_id: getSessionId(), model: 'hr.employee', method: 'read', args: [[employeeId], ['company_id']], kwargs: {} },
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_ids']], kwargs: {} },
             }),
           })
-          const empData = await empRes.json()
-          const compField = empData.result?.[0]?.company_id
-          if (compField && compField !== false) companyId = Array.isArray(compField) ? compField[0] : compField
+          const userData = await userRes.json()
+          companyIds = userData.result?.[0]?.company_ids || []
         } catch { /* silent */ }
       }
 
-      const domain: unknown[] = [['name', 'not ilike', 'Time Off'], ['resource_id', '=', false]]
-      if (companyId) domain.push(['company_id', '=', companyId])
+      // # Show holidays from all companies the user belongs to
+      const domain: unknown[] = companyIds.length > 0
+        ? [['company_id', 'in', companyIds], ['resource_id', '=', false]]
+        : [['resource_id', '=', false]]
 
       const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',

@@ -151,8 +151,12 @@ const AllTimeOffScreen = ({ setActiveScreen, session }: AllTimeOffScreenProps) =
       })
       const data = await res.json()
       if (data.result) {
-        setRequests(data.result)
-        const types = [...new Set(data.result.map((r: LeaveRequest) => r.holiday_status_id[1]))] as string[]
+        const valid = data.result.filter((r: LeaveRequest) =>
+          Array.isArray(r.employee_id) && typeof r.employee_id[1] === 'string' &&
+          Array.isArray(r.holiday_status_id)
+        )
+        setRequests(valid)
+        const types = [...new Set(valid.map((r: LeaveRequest) => r.holiday_status_id[1]).filter(Boolean))] as string[]
         setLeaveTypeOptions(types)
       }
     } catch (err) {

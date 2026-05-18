@@ -58,13 +58,13 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
       let admin = session?.isAdmin === true
       if (session?.isAdmin === undefined) admin = await resolveAdminStatus()
       isAdminRef.current = admin
-      await fetchAllocations(admin)
+      await fetchAllocations()
     }
     init()
-    const onVisible = () => { if (document.visibilityState === 'visible') fetchAllocations(isAdminRef.current) }
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchAllocations() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
-    const interval = setInterval(() => fetchAllocations(isAdminRef.current), 30000)
+    const interval = setInterval(() => fetchAllocations(), 30000)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
@@ -94,14 +94,15 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
     }
   }
 
-  const fetchAllocations = async (adminStatus: boolean) => {
+  const fetchAllocations = async () => {
     setLoading(true)
     try {
       const currentSession = session || loadSession()
-      let employeeId = currentSession?.employeeId
+      const uid = currentSession?.uid
 
-      // # For non-admins: ensure we have the employee ID to filter by
-      if (!adminStatus && !employeeId && currentSession?.uid) {
+      // # Fetch ALL employee records for this user across all companies
+      let employeeIds: number[] = currentSession?.employeeId ? [currentSession.employeeId] : []
+      if (uid) {
         try {
           const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
             method: 'POST',
@@ -113,23 +114,23 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
                 session_id: getSessionId(),
                 model: 'hr.employee',
                 method: 'search_read',
-                args: [[['user_id', '=', currentSession.uid]]],
-                kwargs: { fields: ['id'], limit: 1 },
+                args: [[['user_id', '=', uid]]],
+                kwargs: { fields: ['id'], limit: false },
               },
             }),
           })
           const empData = await empRes.json()
-          if (empData.result?.length > 0) employeeId = empData.result[0].id
+          if (empData.result?.length > 0) employeeIds = empData.result.map((e: { id: number }) => e.id)
         } catch { /* silent */ }
       }
 
-      // # Non-admin with no employee ID — abort to prevent data leak
-      if (!adminStatus && !employeeId) {
+      // # No employee IDs — abort
+      if (employeeIds.length === 0) {
         setLoading(false)
         return
       }
-      // # Admin sees all; employee sees only their own
-      const domain = adminStatus ? [] : [['employee_id', '=', employeeId]]
+      // # Filter by ALL employee records (covers multi-company users)
+      const domain = [['employee_id', 'in', employeeIds]]
 
       const res = await fetch('/web/dataset/call_kw/hr.leave.allocation/search_read', {
         method: 'POST',
@@ -145,13 +146,18 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
             kwargs: {
               fields: ['id', 'name', 'holiday_status_id', 'number_of_days', 'state', 'employee_id', 'date_from', 'date_to'],
               order: 'date_from desc',
-              limit: 100,
+              // # Admin: no limit to show all; normal user: cap at 200
+              limit: 200,
             },
           },
         }),
       })
       const data = await res.json()
-      if (data.result) setAllocations(data.result)
+      if (data.result) setAllocations(
+        data.result.filter((a: Allocation) =>
+          Array.isArray(a.holiday_status_id) && Array.isArray(a.employee_id)
+        )
+      )
     } catch (err) {
       console.error('Error fetching allocations:', err)
     } finally {

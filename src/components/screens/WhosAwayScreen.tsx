@@ -68,7 +68,7 @@ const WhosAwayScreen = ({ setActiveScreen, session }: WhosAwayScreenProps) => {
 
       // # Collect unique leave type names for filter
       const all = [...todayRes, ...tomorrowRes]
-      const types = [...new Set(all.map((r) => r.holiday_status_id[1]))] as string[]
+      const types = [...new Set(all.map((r) => r.holiday_status_id[1]).filter(Boolean))] as string[]
       setLeaveTypeOptions(types)
     } catch (err) {
       console.error('WhosAway fetch error:', err)
@@ -104,7 +104,13 @@ const WhosAwayScreen = ({ setActiveScreen, session }: WhosAwayScreenProps) => {
         }),
       })
       const data = await res.json()
-      return data.result || []
+      // Guard: skip records where many2one fields came back as false (multi-company access gap)
+      return (data.result || []).filter(
+        (r: AwayRecord) =>
+          Array.isArray(r.employee_id) && r.employee_id.length >= 2 &&
+          typeof r.employee_id[1] === 'string' &&
+          Array.isArray(r.holiday_status_id) && r.holiday_status_id.length >= 2
+      )
     } catch {
       return []
     }

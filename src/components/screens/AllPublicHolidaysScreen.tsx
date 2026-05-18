@@ -78,25 +78,26 @@ const AllPublicHolidaysScreen = ({ setActiveScreen, session }: AllPublicHolidays
         } catch { /* silent */ }
       }
 
-      // # Filter by employee's company — calendar_id is not set on these records
-      let companyId: number | null = null
-      if (employeeId) {
+      // # Get all companies the user belongs to
+      let companyIds: number[] = []
+      if (currentSession?.uid) {
         try {
-          const empRes = await fetch('/web/dataset/call_kw/hr.employee/read', {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({
               jsonrpc: '2.0', method: 'call', id: 61,
-              params: { session_id: getSessionId(), model: 'hr.employee', method: 'read', args: [[employeeId], ['company_id']], kwargs: {} },
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_ids']], kwargs: {} },
             }),
           })
-          const empData = await empRes.json()
-          const compField = empData.result?.[0]?.company_id
-          if (compField && compField !== false) companyId = Array.isArray(compField) ? compField[0] : compField
+          const userData = await userRes.json()
+          companyIds = userData.result?.[0]?.company_ids || []
         } catch { /* silent */ }
       }
 
-      const domain: unknown[] = [['name', 'not ilike', 'Time Off'], ['resource_id', '=', false]]
-      if (companyId) domain.push(['company_id', '=', companyId])
+      // # Show holidays from all companies the user belongs to
+      const domain: unknown[] = companyIds.length > 0
+        ? [['company_id', 'in', companyIds], ['resource_id', '=', false]]
+        : [['resource_id', '=', false]]
 
       const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
         method: 'POST',
