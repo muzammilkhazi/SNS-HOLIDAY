@@ -295,7 +295,7 @@ const AllocationsScreen = ({ setActiveScreen, session }: AllocationsScreenProps)
             <p className="text-xs" style={{ color: 'rgba(255,255,255,0.8)' }}>
               {loading ? '...' : hasTypeFilter
                 ? `${[...selectedLeaveTypes].join(', ')}`
-                : `${allocations.length} allocation${allocations.length !== 1 ? 's' : ''}`}
+                : `${allocations.length} Allocation${allocations.length !== 1 ? 's' : ''}`}
             </p>
           </div>
           <button onClick={() => setShowFilterPopup(true)}

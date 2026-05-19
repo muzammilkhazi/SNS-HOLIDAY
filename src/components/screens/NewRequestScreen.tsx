@@ -131,8 +131,8 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   // # Dates & Duration
   const [startDate, setStartDate]                     = useState<string>('')
   const [endDate, setEndDate]                         = useState<string>('')
-  const [startTime, setStartTime]                     = useState<string>('09:00')
-  const [endTime, setEndTime]                         = useState<string>('17:00')
+  const [startTime, setStartTime]                     = useState<string>('09:30')
+  const [endTime, setEndTime]                         = useState<string>('17:30')
   const [durationType, setDurationType]               = useState<'time' | 'duration'>('time')
   const [durationDescription, setDurationDescription] = useState<string>('morning')
   const [durationDays, setDurationDays]               = useState<string>('')
@@ -528,18 +528,18 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     let dateTo: string
     if (durationType === 'duration') {
       if (durationDescription === 'morning') {
-        dateFrom = `${safeStart} 09:00:00`
+        dateFrom = `${safeStart} 09:30:00`
         dateTo   = `${safeStart} 13:00:00`
       } else if (durationDescription === 'afternoon') {
         dateFrom = `${safeStart} 13:00:00`
-        dateTo   = `${safeStart} 18:00:00`
+        dateTo   = `${safeStart} 17:30:00`
       } else {
-        dateFrom = `${safeStart} 09:00:00`
-        dateTo   = `${safeStart} 18:00:00`
+        dateFrom = `${safeStart} 09:30:00`
+        dateTo   = `${safeStart} 17:30:00`
       }
     } else {
-      dateFrom = `${safeStart} 09:00:00`
-      dateTo   = `${finalEndDate} 18:00:00`
+      dateFrom = `${safeStart} 09:30:00`
+      dateTo   = `${finalEndDate} 17:30:00`
     }
 
     const leavePayload: Record<string, unknown> = {
@@ -612,7 +612,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
       if (data.result) {
         const leaveId = data.result as number
         if (attachmentFile) await uploadAttachment(leaveId, attachmentFile)
-        setPopup({ type: 'success', message: `Your leave request has been submitted successfully!\n\nRequest ID: ${leaveId}` })
+        setPopup({ type: 'success', message: 'Your leave request has been submitted successfully!' })
       } else {
         setPopup({ type: 'error', message: 'Unexpected response from server. Please try again.' })
       }

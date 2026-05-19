@@ -141,7 +141,7 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
             jsonrpc: '2.0', method: 'call', id: 4,
             params: {
               session_id: getSessionId(), model: 'hr.leave.allocation', method: 'search_read',
-              args: [[['employee_id', '=', employeeId], ['state', 'in', ['validate', 'validate1']]]],
+              args: [[['employee_id', '=', employeeId], ['state', '=', 'validate']]],
               kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id', 'number_of_days_display'] },
             },
           }),
@@ -152,7 +152,7 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
             jsonrpc: '2.0', method: 'call', id: 5,
             params: {
               session_id: getSessionId(), model: 'hr.leave', method: 'search_read',
-              args: [[['employee_id', '=', employeeId], ['state', 'in', ['validate', 'validate1']], ['holiday_type', '=', 'employee']]],
+              args: [[['employee_id', '=', employeeId], ['state', '=', 'validate'], ['holiday_type', '=', 'employee']]],
               kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id'] },
             },
           }),
