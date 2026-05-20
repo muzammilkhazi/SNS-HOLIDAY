@@ -17,6 +17,8 @@ interface LeaveType {
 
 interface BusinessTrip {
   buyerName: string
+  buyerPartnerId: number | false
+  buyerResults: { id: number; name: string }[]
   canReach: string
   person1Name: string
   person1Dept: string
@@ -41,11 +43,11 @@ interface NewRequestScreenProps {
 }
 
 const PRIORITY_OPTIONS = [
-  'Top Urgent',
-  'Urgent',
-  'Normal',
-  'Picked but on hold',
-  'Please arrange but do not send out',
+  { value: 'top',                label: 'Top Urgent' },
+  { value: 'urgent',             label: 'Urgent' },
+  { value: 'normal',             label: 'Normal' },
+  { value: 'picked_but_on_hold', label: 'Picked but on hold' },
+  { value: 'please_arrange',     label: 'Please arrange but do not send out' },
 ]
 
 const PURPOSE_OPTIONS = [
@@ -56,14 +58,28 @@ const PURPOSE_OPTIONS = [
 ]
 
 const FACTORY_TYPES = ['RD', 'SALES', 'PRODUCTION']
-const TRANSPORT_MODES = ['Select mode', 'Flight', 'Train', 'Car', 'Bus', 'Others']
-const TRAVEL_PURPOSES = ['Select purpose', 'Buyer Meeting', 'Trade Show', 'Product Presentation', 'Contract Negotiation', 'Market Research', 'Others']
+const TRANSPORT_MODES = [
+  { value: '',        label: 'Select mode' },
+  { value: 'flight',  label: 'Flight' },
+  { value: 'train',   label: 'Train' },
+  { value: 'car',     label: 'Car' },
+  { value: 'bus',     label: 'Bus' },
+  { value: 'others',  label: 'Others' },
+]
+const TRAVEL_PURPOSES = [
+  { value: '',               label: 'Select purpose' },
+  { value: 'client_meeting', label: 'Client Meeting' },
+  { value: 'conference',     label: 'Conference' },
+  { value: 'training',       label: 'Training' },
+  { value: 'exhibition',     label: 'Exhibition' },
+  { value: 'others',         label: 'Others' },
+]
 const CURRENCIES = [
-  'INR', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'IDR', 'MYR', 'SGD', 'THB', 'PKR', 'BDT', 'TRY', 'VND',
+  'RMB', 'INR', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'IDR', 'MYR', 'SGD', 'THB', 'PKR', 'BDT', 'TRY', 'VND',
 ]
 
 const emptyBusinessTrip = (): BusinessTrip => ({
-  buyerName: '', canReach: '',
+  buyerName: '', buyerPartnerId: false, buyerResults: [], canReach: '',
   person1Name: '', person1Dept: '', person1Agenda: '',
   person2Name: '', person2Dept: '', person2Agenda: '',
   person3Name: '', person3Dept: '', person3Agenda: '',
@@ -86,7 +102,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   const [factoryLocation, setFactoryLocation]         = useState<string>('')
   const [transportMode, setTransportMode]             = useState<string>('')
   const [transportCost, setTransportCost]             = useState<string>('')
-  const [transportCurrency, setTransportCurrency]     = useState<string>('INR')
+  const [transportCurrency, setTransportCurrency]     = useState<string>('RMB')
   const [factoryDescription, setFactoryDescription]   = useState<string>('')
 
   // # RD
@@ -109,12 +125,15 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
   // # Business Trip
   const [businessCountry, setBusinessCountry]           = useState<string>('')
+  const [businessCountryId, setBusinessCountryId]       = useState<number | false>(false)
+  const [countryResults, setCountryResults]             = useState<{ id: number; name: string }[]>([])
+  const [countrySearching, setCountrySearching]         = useState(false)
   const [businessTravelPurpose, setBusinessTravelPurpose] = useState<string>('')
   const [businessLocation, setBusinessLocation]         = useState<string>('')
   const [businessDescription, setBusinessDescription]   = useState<string>('')
   const [businessTransportMode, setBusinessTransportMode] = useState<string>('')
   const [businessTransportCost, setBusinessTransportCost] = useState<string>('')
-  const [businessTransportCurrency, setBusinessTransportCurrency] = useState<string>('INR')
+  const [businessTransportCurrency, setBusinessTransportCurrency] = useState<string>('RMB')
   const [businessTrips, setBusinessTrips]               = useState<BusinessTrip[]>([emptyBusinessTrip()])
   const [buyerArticles, setBuyerArticles]               = useState<BuyerArticle[]>([{ articleNumber: '', priority: '', itemDescription: '' }])
   const [meetingNotes, setMeetingNotes]                 = useState<string>('')
@@ -146,13 +165,8 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   const [popup, setPopup]                             = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const scrollRef                                     = useRef<HTMLDivElement>(null)
 
-  // # Discovered custom field names and types from hr.leave/fields_get
-  const [customFields, setCustomFields]               = useState<Record<string, string>>({})
-  const [customFieldTypes, setCustomFieldTypes]       = useState<Record<string, string>>({})
-
   useEffect(() => {
     fetchLeaveTypes()
-    discoverCustomFields()
     return () => {}
   }, [])
 
@@ -223,64 +237,71 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     }
   }
 
-  // # Discover custom hr.leave field names dynamically so we can populate them on submit
-  const discoverCustomFields = async () => {
+  const lookupPartnerByName = async (name: string): Promise<number | false> => {
+    if (!name.trim()) return false
     try {
-      const res = await fetch('/web/dataset/call_kw/hr.leave/fields_get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+      const res = await fetch('/web/dataset/call_kw/res.partner/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
-          jsonrpc: '2.0', method: 'call', id: 14,
-          params: {
-            session_id: getSessionId(),
-            model: 'hr.leave', method: 'fields_get',
-            args: [], kwargs: { attributes: ['string', 'type'] },
-          },
+          jsonrpc: '2.0', method: 'call', id: 90,
+          params: { session_id: getSessionId(), model: 'res.partner', method: 'search_read', args: [[['name', 'ilike', name.trim()]]], kwargs: { fields: ['id'], limit: 1 } },
         }),
       })
       const data = await res.json()
-      if (!data.result) return
-      const map: Record<string, string> = {}
-      const LABEL_MAP: Record<string, string> = {
-        'purpose': 'purpose',
-        'leave purpose': 'purpose',
-        'description': 'description',
-        'leave description': 'description',
-        'additional description': 'description',
-        'can be reached by': 'canBeReached',
-        'reachable by': 'canBeReached',
-        'contact via': 'canBeReached',
-        'accompanied with': 'accompanied',
-        'accompanied by': 'accompanied',
-        'factory type': 'factoryType',
-        'factory visit type': 'factoryType',
-        'factory name': 'factoryName',
-        'country': 'country',
-        'location': 'location',
-        'city': 'location',
-        'mode of transportation': 'transportMode',
-        'transport mode': 'transportMode',
-        'cost of transportation': 'transportCost',
-        'transport cost': 'transportCost',
-        'supporting document': 'supportingDoc',
-        'supporting documents': 'supportingDoc',
-        'support document': 'supportingDoc',
-        'attachment': 'supportingDoc',
-      }
-      const typeMap: Record<string, string> = {}
-      const fields = data.result as Record<string, { string: string; type: string }>
-      for (const [key, val] of Object.entries(fields)) {
-        const label = (val.string || '').toLowerCase().trim()
-        const mapped = LABEL_MAP[label]
-        if (mapped && (key.startsWith('x_') || ['purpose','accompanied_with','location','country'].includes(key))) {
-          map[mapped] = key
-          typeMap[mapped] = val.type
-        }
-      }
-      setCustomFields(map)
-      setCustomFieldTypes(typeMap)
-    } catch { /* silent — fall back to name-only submission */ }
+      return data.result?.[0]?.id || false
+    } catch { return false }
+  }
+
+  const lookupEmployeeByName = async (name: string): Promise<number | false> => {
+    if (!name.trim()) return false
+    try {
+      const res = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 92,
+          params: { session_id: getSessionId(), model: 'hr.employee', method: 'search_read', args: [[['name', 'ilike', name.trim()]]], kwargs: { fields: ['id'], limit: 1 } },
+        }),
+      })
+      const data = await res.json()
+      return data.result?.[0]?.id || false
+    } catch { return false }
+  }
+
+  const searchBuyers = async (query: string, tripIndex: number) => {
+    if (!query.trim()) {
+      setBusinessTrips(prev => prev.map((t, i) => i === tripIndex ? { ...t, buyerResults: [] } : t))
+      return
+    }
+    try {
+      const res = await fetch('/web/dataset/call_kw/res.partner/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 94,
+          params: { session_id: getSessionId(), model: 'res.partner', method: 'search_read', args: [[['name', 'ilike', query.trim()]]], kwargs: { fields: ['id', 'name'], limit: 8 } },
+        }),
+      })
+      const data = await res.json()
+      setBusinessTrips(prev => prev.map((t, i) => i === tripIndex ? { ...t, buyerResults: data.result || [] } : t))
+    } catch {
+      setBusinessTrips(prev => prev.map((t, i) => i === tripIndex ? { ...t, buyerResults: [] } : t))
+    }
+  }
+
+  const searchCountries = async (query: string) => {
+    if (!query.trim()) { setCountryResults([]); return }
+    setCountrySearching(true)
+    try {
+      const res = await fetch('/web/dataset/call_kw/res.country/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 93,
+          params: { session_id: getSessionId(), model: 'res.country', method: 'search_read', args: [[['name', 'ilike', query.trim()]]], kwargs: { fields: ['id', 'name'], limit: 8 } },
+        }),
+      })
+      const data = await res.json()
+      setCountryResults(data.result || [])
+    } catch { setCountryResults([]) }
+    finally { setCountrySearching(false) }
   }
 
   const addProdIssue = () => setProdIssues(prev => [...prev, ''])
@@ -335,54 +356,17 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     try {
       const dataUrl = await fileToBase64(file)
       const base64Data = dataUrl.split(',')[1]
-      const docField = customFields.supportingDoc
-      const docType  = customFieldTypes.supportingDoc
-
-      if (docField && docType === 'binary') {
-        // # Binary field — write base64 directly to the field
-        await fetch('/web/dataset/call_kw/hr.leave/write', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({
-            jsonrpc: '2.0', method: 'call', id: 15,
-            params: {
-              session_id: getSessionId(), model: 'hr.leave', method: 'write',
-              args: [[leaveId], { [docField]: base64Data }],
-              kwargs: {},
-            },
-          }),
-        })
-      } else {
-        // # Many2many / fallback — create ir.attachment then link to field
-        const attachRes = await fetch('/web/dataset/call_kw/ir.attachment/create', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({
-            jsonrpc: '2.0', method: 'call', id: 13,
-            params: {
-              session_id: getSessionId(), model: 'ir.attachment', method: 'create',
-              args: [{ name: file.name, res_model: 'hr.leave', res_id: leaveId, datas: base64Data, type: 'binary' }],
-              kwargs: {},
-            },
-          }),
-        })
-        // # If a Many2many field exists, also link the new attachment to it
-        if (docField && (docType === 'many2many' || docType === 'one2many')) {
-          const attachData = await attachRes.json()
-          const attachId = attachData.result
-          if (attachId) {
-            await fetch('/web/dataset/call_kw/hr.leave/write', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-              body: JSON.stringify({
-                jsonrpc: '2.0', method: 'call', id: 16,
-                params: {
-                  session_id: getSessionId(), model: 'hr.leave', method: 'write',
-                  args: [[leaveId], { [docField]: [[4, attachId]] }],
-                  kwargs: {},
-                },
-              }),
-            })
-          }
-        }
-      }
+      await fetch('/web/dataset/call_kw/hr.leave/write', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 15,
+          params: {
+            session_id: getSessionId(), model: 'hr.leave', method: 'write',
+            args: [[leaveId], { supporting_document: base64Data }],
+            kwargs: {},
+          },
+        }),
+      })
     } catch (err) {
       console.error('Attachment upload failed:', err)
     }
@@ -402,46 +386,6 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     if (!employeeId) { showError('Employee not found. Please log out and log back in.'); return }
     setSubmitting(true)
 
-    // # Fetch fresh balance + check pending allocations — bypasses session cache
-    let freshBalance: number | null = null
-    let leaveTypeName = ''
-    let hasPendingAllocation = false
-    try {
-      const [balRes, allocRes] = await Promise.all([
-        // Fresh balance for this leave type
-        fetch('/web/dataset/call_kw/hr.leave.type/search_read', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({
-            jsonrpc: '2.0', method: 'call', id: 77,
-            params: {
-              session_id: getSessionId(), model: 'hr.leave.type', method: 'search_read',
-              args: [[['id', '=', timeOffTypeId]]],
-              kwargs: { fields: ['id', 'name', 'virtual_remaining_leaves'], context: { employee_id: employeeId } },
-            },
-          }),
-        }),
-        // Check if employee has allocations waiting for approval (draft/confirm)
-        fetch('/web/dataset/call_kw/hr.leave.allocation/search_read', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({
-            jsonrpc: '2.0', method: 'call', id: 78,
-            params: {
-              session_id: getSessionId(), model: 'hr.leave.allocation', method: 'search_read',
-              args: [[['employee_id', '=', employeeId], ['holiday_status_id', '=', timeOffTypeId], ['state', 'in', ['draft', 'confirm']]]],
-              kwargs: { fields: ['id', 'state'], limit: 1 },
-            },
-          }),
-        }),
-      ])
-      const balData = await balRes.json()
-      const allocData = await allocRes.json()
-      if (balData.result?.length > 0) {
-        freshBalance = balData.result[0].virtual_remaining_leaves
-        leaveTypeName = balData.result[0].name
-      }
-      hasPendingAllocation = (allocData.result?.length ?? 0) > 0
-    } catch { /* silent — will still attempt create */ }
-
     // # Normalize dates to YYYY-MM-DD — Android browsers sometimes return DD/MM/YYYY
     const toISO = (d: string): string => {
       if (!d) return d
@@ -455,75 +399,9 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
     const finalEndDate = durationType === 'duration' ? safeStart : safeEnd
 
-    // # Build structured reason from all form fields
-    const parts: string[] = []
-    if (purpose === 'personal') {
-      parts.push('Personal Leave')
-      if (leaveNote) parts.push(`Note: ${leaveNote}`)
-      const reaches = Object.entries(reachBy).filter(([, v]) => v).map(([k]) => k)
-      if (reaches.length > 0) parts.push(`Reachable by: ${reaches.join(', ')}`)
-    } else if (purpose === 'factory') {
-      parts.push(`Factory Visit (${factoryType})`)
-      if (factoryName) parts.push(`Factory: ${factoryName}`)
-      if (factoryLocation) parts.push(`Location: ${factoryLocation}`)
-      if (factoryType === 'RD') {
-        const ps = [...(rdNewCollection ? ['New Collection'] : []), ...(rdMillDevelopment ? ['Mill Development'] : []), ...(rdOthers && rdOthersText ? [rdOthersText] : [])]
-        if (ps.length > 0) parts.push(`Purpose: ${ps.join(', ')}`)
-      } else if (factoryType === 'SALES') {
-        const ps = [...(salesNewCollection ? ['New Collection'] : []), ...(salesFollowUp ? ['Follow up Development'] : []), ...(salesOthers && salesOthersText ? [salesOthersText] : [])]
-        if (ps.length > 0) parts.push(`Purpose: ${ps.join(', ')}`)
-      } else if (factoryType === 'PRODUCTION') {
-        if (prodPurpose === 'followOrder') {
-          if (prodOrderNumber) parts.push(`Order: ${prodOrderNumber}`)
-          const issues = prodIssues.filter(Boolean)
-          if (issues.length > 0) parts.push(`Issues: ${issues.join(', ')}`)
-        }
-        if (prodOthersText) parts.push(`Other: ${prodOthersText}`)
-      }
-      if (transportMode) parts.push(`Transport: ${transportMode}`)
-      if (transportCost) parts.push(`Transport Cost: ${transportCurrency} ${transportCost}`)
-      if (factoryDescription) parts.push(`Details: ${factoryDescription}`)
-    } else if (purpose === 'business') {
-      parts.push('Business Trip')
-      if (businessCountry) parts.push(`Country: ${businessCountry}`)
-      if (businessTravelPurpose) parts.push(`Travel Purpose: ${businessTravelPurpose}`)
-      if (businessLocation) parts.push(`Location: ${businessLocation}`)
-      if (businessTransportMode) parts.push(`Transport: ${businessTransportMode}`)
-      if (businessTransportCost) parts.push(`Transport Cost: ${businessTransportCurrency} ${businessTransportCost}`)
-      if (businessDescription) parts.push(`Details: ${businessDescription}`)
-      businessTrips.forEach((trip, i) => {
-        if (trip.buyerName || trip.person1Name) {
-          parts.push(`Buyer ${i + 1}: ${trip.buyerName}${trip.canReach ? ` (reach: ${trip.canReach})` : ''}`)
-          if (trip.person1Name) parts.push(`  P1: ${trip.person1Name}/${trip.person1Dept}/${trip.person1Agenda}`)
-          if (trip.person2Name) parts.push(`  P2: ${trip.person2Name}/${trip.person2Dept}/${trip.person2Agenda}`)
-          if (trip.person3Name) parts.push(`  P3: ${trip.person3Name}/${trip.person3Dept}/${trip.person3Agenda}`)
-        }
-      })
-      buyerArticles.forEach((a, i) => {
-        if (a.articleNumber || a.priority) {
-          parts.push(`Article ${i + 1}: ${a.articleNumber}${a.priority ? ` | ${a.priority}` : ''}${a.itemDescription ? ` | ${a.itemDescription}` : ''}`)
-        }
-      })
-      if (meetingNotes) parts.push(`Meeting Notes: ${meetingNotes}`)
-    } else if (purpose === 'others') {
-      parts.push(`Other: ${othersVisitType || 'Visit'}`)
-      if (othersCanReach) parts.push(`Reachable by: ${othersCanReach}`)
-      if (othersLocation) parts.push(`Location: ${othersLocation}`)
-      if (othersAgenda) parts.push(`Agenda: ${othersAgenda}`)
-    }
-    if (accompaniedWith) parts.push(`Accompanied with: ${accompaniedWith}`)
-    if (description) parts.push(`Additional: ${description}`)
-
-    const leaveName = parts.join(' | ')
-
     // # Half-day fields for duration mode
     const isHalfDay = durationType === 'duration' && durationDescription !== 'full'
 
-    // # Build explicit date_from / date_to datetimes so Odoo never defaults to today.
-    // # Odoo stores datetimes in UTC — we send local times directly (cosmetic offset only;
-    // # the DATE portion is always correct which is what the overlap check uses).
-    // # Always use fixed safe times (09:00 / 18:00) so date_from never hits
-    // # midnight, which causes false overlap with leaves ending end-of-previous-day.
     let dateFrom: string
     let dateTo: string
     if (durationType === 'duration') {
@@ -542,37 +420,145 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
       dateTo   = `${finalEndDate} 17:30:00`
     }
 
+    // # Purpose → Odoo selection value
+    const purposeMap: Record<string, string> = { personal: 'personal', factory: 'factory_visit', business: 'business_trip', others: 'others' }
+    const factoryTypeMap: Record<string, string> = { RD: 'rd', SALES: 'sales', PRODUCTION: 'production' }
+
+    // # Single reachable-by value (Odoo accepts one)
+    const reachByValue = reachBy.phone ? 'phone' : reachBy.email ? 'email' : reachBy.whatsapp ? 'whatsapp' : false
+
+    // # name = the actual description text (required by Odoo)
+    const leaveName = [description, meetingNotes].filter(Boolean).join('\n') || leaveNote || `${PURPOSE_OPTIONS.find(p => p.value === purpose)?.label ?? 'Leave'} Request`
+
+    // # Accompanied With — many2many hr.employee
+    const accompaniedEmpId = accompaniedWith ? await lookupEmployeeByName(accompaniedWith) : false
+
     const leavePayload: Record<string, unknown> = {
       holiday_status_id: timeOffTypeId,
       request_date_from: safeStart,
-      request_date_to: finalEndDate,
-      date_from: dateFrom,
-      date_to: dateTo,
-      employee_id: employeeId,
-      name: leaveName,
+      request_date_to:   finalEndDate,
+      date_from:         dateFrom,
+      date_to:           dateTo,
+      employee_id:       employeeId,
+      name:              leaveName,
+      leave_purpose:     purposeMap[purpose] || purpose,
     }
+
     if (isHalfDay) {
       leavePayload.request_unit_half = true
       leavePayload.request_date_from_period = durationDescription === 'morning' ? 'am' : 'pm'
     }
 
-    // # Populate custom Odoo fields using dynamically discovered field names
-    const cf = customFields
-    if (cf.purpose)       leavePayload[cf.purpose]    = purpose
-    if (cf.accompanied && accompaniedWith) leavePayload[cf.accompanied] = accompaniedWith
-    if (cf.description && description)    leavePayload[cf.description]  = description
-    if (cf.canBeReached) {
-      const reaches = Object.entries(reachBy).filter(([, v]) => v).map(([k]) => k).join(', ')
-      if (reaches) leavePayload[cf.canBeReached] = reaches
+    // # Accompanied With (many2many hr.employee)
+    if (accompaniedEmpId) leavePayload.employee_ids = [[4, accompaniedEmpId]]
+
+    // # Can Be Reached By
+    if (reachByValue) leavePayload.others_reachable_by = reachByValue
+
+    // # Others purpose sub-fields
+    if (purpose === 'others') {
+      if (othersVisitType) leavePayload.others_purpose  = othersVisitType
+      if (othersLocation)  leavePayload.others_location = othersLocation
+      if (othersAgenda)    leavePayload.others_agenda   = othersAgenda
     }
-    if (cf.factoryType && purpose === 'factory')    leavePayload[cf.factoryType]    = factoryType
-    if (cf.factoryName && factoryName)              leavePayload[cf.factoryName]    = factoryName
-    if (cf.transportMode && transportMode)          leavePayload[cf.transportMode]  = transportMode
-    if (cf.transportCost && transportCost)          leavePayload[cf.transportCost]  = `${transportCurrency} ${transportCost}`
-    if (cf.country && businessCountry)              leavePayload[cf.country]        = businessCountry
-    if (cf.location) {
-      const loc = purpose === 'factory' ? factoryLocation : businessLocation
-      if (loc) leavePayload[cf.location] = loc
+
+    // # Factory Visit
+    if (purpose === 'factory') {
+      leavePayload.factory_visit_type = factoryTypeMap[factoryType] || factoryType.toLowerCase()
+      const partnerId = await lookupPartnerByName(factoryName)
+      const lineData: Record<string, unknown> = {
+        location:          factoryLocation || false,
+        mode_of_transport: transportMode   || false,
+        cost_of_transport: transportCost   ? parseFloat(transportCost) : 0,
+      }
+      if (partnerId) lineData.partner_id = partnerId
+      if (factoryType === 'RD') {
+        lineData.new_collection  = rdNewCollection
+        lineData.mill_development = rdMillDevelopment
+        lineData.others          = rdOthers
+        lineData.specify_others  = rdOthersText  || false
+      } else if (factoryType === 'SALES') {
+        lineData.new_collection  = salesNewCollection
+        lineData.follow_up_div   = salesFollowUp
+        lineData.others          = salesOthers
+        lineData.specify_others  = salesOthersText || false
+      } else {
+        // PRODUCTION — store order + issues in specify_others
+        const prodInfo = [prodOrderNumber, ...prodIssues.filter(Boolean), prodOthersText].filter(Boolean).join(', ')
+        lineData.others         = true
+        lineData.specify_others = prodInfo || false
+      }
+      leavePayload.factory_visit_line_ids = [[0, 0, lineData]]
+    }
+
+    // # Business Trip
+    if (purpose === 'business') {
+      if (!businessCountryId) {
+        setPopup({ type: 'error', message: 'Please select a Country from the dropdown for the Business Trip.' })
+        setSubmitting(false); return
+      }
+      const countryId = businessCountryId
+
+      // # Validate all required business.lines fields before sending
+      if (!businessTravelPurpose) {
+        setPopup({ type: 'error', message: 'Please select a Travel Purpose for the Business Trip.' })
+        setSubmitting(false); return
+      }
+
+      const lines: unknown[] = []
+      const notFoundBuyers: string[] = []
+
+      for (const trip of businessTrips) {
+        if (!trip.buyerName) continue
+        if (!trip.buyerPartnerId) { notFoundBuyers.push(trip.buyerName); continue }
+        if (!trip.person1Name.trim()) {
+          setPopup({ type: 'error', message: `Please enter "Person to Meet" for buyer "${trip.buyerName}".` })
+          setSubmitting(false); return
+        }
+        const partnerId = trip.buyerPartnerId
+
+        const persons = [
+          { name: trip.person1Name, dept: trip.person1Dept, agenda: trip.person1Agenda },
+          { name: trip.person2Name, dept: trip.person2Dept, agenda: trip.person2Agenda },
+          { name: trip.person3Name, dept: trip.person3Dept, agenda: trip.person3Agenda },
+        ].filter(p => p.name)
+
+        // # All required fields in every business.lines record
+        const baseLine: Record<string, unknown> = {
+          partner_id:     partnerId,
+          country_id:     countryId,
+          travel_purpose: businessTravelPurpose,
+          location:       businessLocation || false,
+          description:    businessDescription || false,
+        }
+
+        // # Meeting lines — one per person
+        for (const p of persons) {
+          lines.push([0, 0, { ...baseLine, person_to_meet: p.name, department: p.dept || false, agenda: p.agenda || false }])
+        }
+
+        // # Article lines — all required fields included
+        for (const article of buyerArticles) {
+          if (!article.articleNumber && !article.priority) continue
+          lines.push([0, 0, {
+            ...baseLine,
+            person_to_meet:    trip.person1Name,
+            article_no:        article.articleNumber   || false,
+            select_priority:   article.priority        || false,
+            buyer_description: article.itemDescription || false,
+          }])
+        }
+      }
+
+      if (lines.length === 0) {
+        const msg = notFoundBuyers.length > 0
+          ? `Buyer "${notFoundBuyers[0]}" not found in the system. Please enter the exact registered buyer name.`
+          : 'Please enter at least one Buyer Name for the Business Trip.'
+        setPopup({ type: 'error', message: msg })
+        setSubmitting(false)
+        return
+      }
+      leavePayload.business_line_ids = lines
     }
 
     try {
@@ -599,12 +585,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
         if (isOverlap) {
           errorMsg = 'Leave already exists for these dates. Please check your existing request.'
         } else if (isInsufficient) {
-          const balLine = freshBalance !== null
-            ? `Your current ${leaveTypeName} balance: ${freshBalance} day${freshBalance !== 1 ? 's' : ''}.`
-            : ''
-          errorMsg = hasPendingAllocation
-            ? `Your ${leaveTypeName} allocation is waiting for approval.\n\n${balLine}\n\nPlease ask HR to approve your allocation in Odoo, then try again.`
-            : `Insufficient leave balance.\n\n${balLine}\n\nPlease contact HR to add or approve your allocation.`
+          errorMsg = 'Insufficient leave balance. Please contact HR to add or approve your allocation.'
         }
         setPopup({ type: 'error', message: errorMsg })
         return
@@ -980,7 +961,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     className="w-full p-3 rounded-xl text-sm focus:outline-none"
                     style={{ ...inputStyle, width: '100%', appearance: 'none', paddingRight: 40 }}>
                     {TRANSPORT_MODES.map((mode) => (
-                      <option key={mode} value={mode === 'Select mode' ? '' : mode}>{mode}</option>
+                      <option key={mode.value} value={mode.value}>{mode.label}</option>
                     ))}
                   </select>
                   <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
@@ -1029,13 +1010,39 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
             <div>
 
               {/* # Top-level trip fields */}
-              <div className="mb-3">
+              <div className="mb-3" style={{ position: 'relative' }}>
                 <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>Country *</label>
-                <input type="text" value={businessCountry}
-                  onChange={(e) => setBusinessCountry(e.target.value)}
-                  placeholder="Enter country"
+                <input
+                  type="text"
+                  value={businessCountry}
+                  onChange={(e) => {
+                    setBusinessCountry(e.target.value)
+                    setBusinessCountryId(false)
+                    searchCountries(e.target.value)
+                  }}
+                  placeholder="Search country..."
                   className="w-full p-3 rounded-xl text-sm focus:outline-none"
-                  style={inputStyle} />
+                  style={{ ...inputStyle, borderColor: businessCountryId ? '#22c55e' : inputStyle.borderColor }}
+                />
+                {countrySearching && (
+                  <p style={{ fontSize: 11, color: colors.textMuted, marginTop: 4 }}>Searching...</p>
+                )}
+                {countryResults.length > 0 && !businessCountryId && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 200, overflowY: 'auto' }}>
+                    {countryResults.map((c) => (
+                      <button key={c.id}
+                        onPointerDown={(e) => {
+                          e.preventDefault()
+                          setBusinessCountry(c.name)
+                          setBusinessCountryId(c.id)
+                          setCountryResults([])
+                        }}
+                        style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: colors.textPrimary, borderBottom: '1px solid #f3f4f6' }}>
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="mb-3">
@@ -1046,7 +1053,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     className="w-full p-3 rounded-xl text-sm focus:outline-none"
                     style={{ ...inputStyle, width: '100%', appearance: 'none', paddingRight: 40 }}>
                     {TRAVEL_PURPOSES.map((p) => (
-                      <option key={p} value={p === 'Select purpose' ? '' : p}>{p}</option>
+                      <option key={p.value} value={p.value}>{p.label}</option>
                     ))}
                   </select>
                   <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
@@ -1079,7 +1086,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     className="w-full p-3 rounded-xl text-sm focus:outline-none"
                     style={{ ...inputStyle, width: '100%', appearance: 'none', paddingRight: 40 }}>
                     {TRANSPORT_MODES.map((mode) => (
-                      <option key={mode} value={mode === 'Select mode' ? '' : mode}>{mode}</option>
+                      <option key={mode.value} value={mode.value}>{mode.label}</option>
                     ))}
                   </select>
                   <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
@@ -1116,7 +1123,34 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 18, padding: 0 }}>✕</button>
                     )}
                   </div>
-                  <input type="text" placeholder="Buyer Name" value={trip.buyerName} onChange={(e) => updateBusinessTrip(index, 'buyerName', e.target.value)} style={fieldInput} />
+                  {/* # Buyer Name search dropdown */}
+                  <div style={{ position: 'relative', marginBottom: 10 }}>
+                    <input
+                      type="text"
+                      placeholder="Search Buyer Name..."
+                      value={trip.buyerName}
+                      onChange={(e) => {
+                        updateBusinessTrip(index, 'buyerName', e.target.value)
+                        setBusinessTrips(prev => prev.map((t, i) => i === index ? { ...t, buyerPartnerId: false } : t))
+                        searchBuyers(e.target.value, index)
+                      }}
+                      style={{ ...fieldInput, marginBottom: 0, borderColor: trip.buyerPartnerId ? '#22c55e' : '#e5e7eb' }}
+                    />
+                    {trip.buyerResults.length > 0 && !trip.buyerPartnerId && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 180, overflowY: 'auto' }}>
+                        {trip.buyerResults.map((b) => (
+                          <button key={b.id}
+                            onPointerDown={(e) => {
+                              e.preventDefault()
+                              setBusinessTrips(prev => prev.map((t, i) => i === index ? { ...t, buyerName: b.name, buyerPartnerId: b.id, buyerResults: [] } : t))
+                            }}
+                            style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#1a1035', borderBottom: '1px solid #f3f4f6' }}>
+                            {b.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ position: 'relative', marginBottom: 10 }}>
                     <select value={trip.canReach} onChange={(e) => updateBusinessTrip(index, 'canReach', e.target.value)}
                       style={{ ...fieldInput, marginBottom: 0, backgroundColor: '#ffffff', appearance: 'none', paddingRight: 40, width: '100%' }}>
@@ -1191,7 +1225,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                         onChange={(e) => updateBuyerArticle(index, 'priority', e.target.value)}
                         style={{ ...fieldInput, marginBottom: 0, width: '100%', backgroundColor: '#ffffff', appearance: 'none', paddingRight: 40 }}>
                         <option value="">Select priority</option>
-                        {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                        {PRIORITY_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                       </select>
                       <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
                     </div>
@@ -1334,6 +1368,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
+                  
                   <label className="block text-xs mb-1" style={{ color: colors.textMuted }}>Start Time</label>
                   <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
                     className="w-full p-3 rounded-xl text-sm focus:outline-none"

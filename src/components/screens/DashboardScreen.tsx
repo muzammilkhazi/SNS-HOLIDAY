@@ -133,6 +133,22 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
 
     if (!employeeId) return
 
+    // # Resolve ALL employee IDs for this user across all companies
+    let allEmployeeIds: number[] = [employeeId]
+    if (currentSession?.uid) {
+      try {
+        const empRes = await fetch('/web/dataset/call_kw/hr.employee/search_read', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({
+            jsonrpc: '2.0', method: 'call', id: 62,
+            params: { session_id: getSessionId(), model: 'hr.employee', method: 'search_read', args: [[['user_id', '=', currentSession.uid]]], kwargs: { fields: ['id'], limit: false } },
+          }),
+        })
+        const empData = await empRes.json()
+        if (empData.result?.length > 0) allEmployeeIds = empData.result.map((e: { id: number }) => e.id)
+      } catch { /* silent */ }
+    }
+
     try {
       const [allocRes, takenRes] = await Promise.all([
         fetch('/web/dataset/call_kw/hr.leave.allocation/search_read', {
@@ -141,7 +157,7 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
             jsonrpc: '2.0', method: 'call', id: 4,
             params: {
               session_id: getSessionId(), model: 'hr.leave.allocation', method: 'search_read',
-              args: [[['employee_id', '=', employeeId], ['state', '=', 'validate']]],
+              args: [[['employee_id', 'in', allEmployeeIds], ['state', '=', 'validate']]],
               kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id', 'number_of_days_display'] },
             },
           }),
@@ -152,7 +168,7 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
             jsonrpc: '2.0', method: 'call', id: 5,
             params: {
               session_id: getSessionId(), model: 'hr.leave', method: 'search_read',
-              args: [[['employee_id', '=', employeeId], ['state', '=', 'validate'], ['holiday_type', '=', 'employee']]],
+              args: [[['employee_id', 'in', allEmployeeIds], ['state', '=', 'validate'], ['holiday_type', '=', 'employee']]],
               kwargs: { fields: ['id', 'number_of_days', 'holiday_status_id'] },
             },
           }),
