@@ -100,14 +100,39 @@ const AllStressDaysScreen = ({ setActiveScreen, session }: AllStressDaysScreenPr
         if (deptField && deptField !== false) deptId = Array.isArray(deptField) ? deptField[0] : deptField
       }
 
-      // # Step 2: filter stress days — current year only, global (no dept) OR employee's dept
+      // # Step 2: get user's active company — restrict context to prevent cross-company data leaks
+      // # Every user sees only their active company's stress days
+      let companyFilter: unknown[] = []
+      let allowedCompanyIds: number[] = []
+      if (currentSession?.uid) {
+        try {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 56,
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_id']], kwargs: {} },
+            }),
+          })
+          const userData = await userRes.json()
+          const cf = userData.result?.[0]?.company_id
+          const cid: number | false = Array.isArray(cf) ? cf[0] : cf
+          if (cid) { companyFilter = [['company_id', '=', cid]]; allowedCompanyIds = [cid] }
+        } catch { /* silent */ }
+      }
+
+      // # Step 3: filter stress days — current year only, company, global (no dept) OR employee's dept
       const year = new Date().getFullYear()
       const yearStart = `${year}-01-01`
       const yearEnd   = `${year}-12-31`
-      const domain = deptId
-        ? ['|', ['department_ids', '=', false], ['department_ids', 'in', [deptId]],
-           ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
-        : [['department_ids', '=', false], ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
+      const deptCondition = deptId
+        ? ['|', ['department_ids', '=', false], ['department_ids', 'in', [deptId]]]
+        : [['department_ids', '=', false]]
+      const domain = [
+        ...companyFilter,
+        ...deptCondition,
+        ['start_date', '>=', yearStart],
+        ['start_date', '<=', yearEnd],
+      ]
 
       const res = await fetch('/web/dataset/call_kw/hr.leave.stress.day/search_read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -117,7 +142,11 @@ const AllStressDaysScreen = ({ setActiveScreen, session }: AllStressDaysScreenPr
             session_id: getSessionId(),
             model: 'hr.leave.stress.day', method: 'search_read',
             args: [domain],
-            kwargs: { fields: ['id', 'name', 'start_date', 'end_date', 'color'], order: 'start_date asc', limit: 50 },
+            kwargs: {
+              fields: ['id', 'name', 'start_date', 'end_date', 'color'],
+              order: 'start_date asc', limit: 50,
+              context: allowedCompanyIds.length > 0 ? { allowed_company_ids: allowedCompanyIds } : {},
+            },
           },
         }),
       })

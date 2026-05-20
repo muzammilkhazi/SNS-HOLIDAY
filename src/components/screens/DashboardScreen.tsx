@@ -296,13 +296,33 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
         const deptField = empData.result?.[0]?.department_id
         if (deptField && deptField !== false) deptId = Array.isArray(deptField) ? deptField[0] : deptField
       }
+      // # Company filter — admin sees all their companies, normal user sees active company only
+      // # Every user sees only their active company's stress days
+      let companyFilter: unknown[] = []
+      let allowedCompanyIdsSD: number[] = []
+      if (currentSession?.uid) {
+        try {
+          const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0', method: 'call', id: 56,
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_id']], kwargs: {} },
+            }),
+          })
+          const userData = await userRes.json()
+          const cf = userData.result?.[0]?.company_id
+          const cid: number | false = Array.isArray(cf) ? cf[0] : cf
+          if (cid) { companyFilter = [['company_id', '=', cid]]; allowedCompanyIdsSD = [cid] }
+        } catch { /* silent */ }
+      }
+
       const year = new Date().getFullYear()
       const yearStart = `${year}-01-01`
       const yearEnd   = `${year}-12-31`
-      const domain = deptId
-        ? ['|', ['department_ids', '=', false], ['department_ids', 'in', [deptId]],
-           ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
-        : [['department_ids', '=', false], ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
+      const deptCondition = deptId
+        ? ['|', ['department_ids', '=', false], ['department_ids', 'in', [deptId]]]
+        : [['department_ids', '=', false]]
+      const domain = [...companyFilter, ...deptCondition, ['start_date', '>=', yearStart], ['start_date', '<=', yearEnd]]
       const res = await fetch('/web/dataset/call_kw/hr.leave.stress.day/search_read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
@@ -310,7 +330,10 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
           params: {
             session_id: getSessionId(), model: 'hr.leave.stress.day', method: 'search_read',
             args: [domain],
-            kwargs: { fields: ['id', 'name', 'start_date', 'end_date', 'color'], order: 'start_date asc', limit: 10 },
+            kwargs: {
+              fields: ['id', 'name', 'start_date', 'end_date', 'color'], order: 'start_date asc', limit: 10,
+              context: allowedCompanyIdsSD.length > 0 ? { allowed_company_ids: allowedCompanyIdsSD } : {},
+            },
           },
         }),
       })
@@ -352,26 +375,25 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
         } catch { /* silent */ }
       }
 
-      // # Get all companies the user belongs to
-      let companyIds: number[] = []
+      // # Admin → all companies; normal user → active company only
+      // # Every user sees only their active company's public holidays
+      let domain: unknown[] = [['resource_id', '=', false]]
+      let allowedCompanyIdsPH: number[] = []
       if (currentSession?.uid) {
         try {
           const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({
               jsonrpc: '2.0', method: 'call', id: 61,
-              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_ids']], kwargs: {} },
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_id']], kwargs: {} },
             }),
           })
           const userData = await userRes.json()
-          companyIds = userData.result?.[0]?.company_ids || []
+          const cf = userData.result?.[0]?.company_id
+          const cid: number | false = Array.isArray(cf) ? cf[0] : cf
+          if (cid) { domain = [['company_id', '=', cid], ['resource_id', '=', false]]; allowedCompanyIdsPH = [cid] }
         } catch { /* silent */ }
       }
-
-      // # Show holidays from all companies the user belongs to
-      const domain: unknown[] = companyIds.length > 0
-        ? [['company_id', 'in', companyIds], ['resource_id', '=', false]]
-        : [['resource_id', '=', false]]
 
       const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -380,7 +402,10 @@ const DashboardScreen = ({ setActiveScreen, session }: DashboardScreenProps) => 
           params: {
             session_id: getSessionId(), model: 'resource.calendar.leaves', method: 'search_read',
             args: [domain],
-            kwargs: { fields: ['id', 'name', 'date_from', 'date_to'], order: 'date_from asc', limit: 5 },
+            kwargs: {
+              fields: ['id', 'name', 'date_from', 'date_to'], order: 'date_from asc', limit: 5,
+              context: allowedCompanyIdsPH.length > 0 ? { allowed_company_ids: allowedCompanyIdsPH } : {},
+            },
           },
         }),
       })

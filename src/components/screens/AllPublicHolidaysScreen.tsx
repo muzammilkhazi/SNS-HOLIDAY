@@ -78,26 +78,25 @@ const AllPublicHolidaysScreen = ({ setActiveScreen, session }: AllPublicHolidays
         } catch { /* silent */ }
       }
 
-      // # Get all companies the user belongs to
-      let companyIds: number[] = []
+      // # Admin → all companies (company_ids); normal user → active company only (company_id)
+      // # Every user sees only their active company's holidays
+      let domain: unknown[] = [['resource_id', '=', false]]
+      let allowedCompanyIds: number[] = []
       if (currentSession?.uid) {
         try {
           const userRes = await fetch('/web/dataset/call_kw/res.users/read', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({
               jsonrpc: '2.0', method: 'call', id: 61,
-              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_ids']], kwargs: {} },
+              params: { session_id: getSessionId(), model: 'res.users', method: 'read', args: [[currentSession.uid], ['company_id']], kwargs: {} },
             }),
           })
           const userData = await userRes.json()
-          companyIds = userData.result?.[0]?.company_ids || []
+          const cf = userData.result?.[0]?.company_id
+          const cid: number | false = Array.isArray(cf) ? cf[0] : cf
+          if (cid) { domain = [['company_id', '=', cid], ['resource_id', '=', false]]; allowedCompanyIds = [cid] }
         } catch { /* silent */ }
       }
-
-      // # Show holidays from all companies the user belongs to
-      const domain: unknown[] = companyIds.length > 0
-        ? [['company_id', 'in', companyIds], ['resource_id', '=', false]]
-        : [['resource_id', '=', false]]
 
       const res = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
         method: 'POST',
@@ -108,7 +107,10 @@ const AllPublicHolidaysScreen = ({ setActiveScreen, session }: AllPublicHolidays
           params: {
             session_id: getSessionId(), model: 'resource.calendar.leaves', method: 'search_read',
             args: [domain],
-            kwargs: { fields: ['id', 'name', 'date_from', 'date_to'], order: 'date_from asc' },
+            kwargs: {
+              fields: ['id', 'name', 'date_from', 'date_to'], order: 'date_from asc',
+              context: allowedCompanyIds.length > 0 ? { allowed_company_ids: allowedCompanyIds } : {},
+            },
           },
         }),
       })

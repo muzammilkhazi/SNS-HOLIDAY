@@ -99,6 +99,8 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   // # Factory
   const [factoryType, setFactoryType]                 = useState<string>('RD')
   const [factoryName, setFactoryName]                 = useState<string>('')
+  const [factoryPartnerId, setFactoryPartnerId]       = useState<number | false>(false)
+  const [factoryResults, setFactoryResults]           = useState<{ id: number; name: string }[]>([])
   const [factoryLocation, setFactoryLocation]         = useState<string>('')
   const [transportMode, setTransportMode]             = useState<string>('')
   const [transportCost, setTransportCost]             = useState<string>('')
@@ -237,21 +239,6 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     }
   }
 
-  const lookupPartnerByName = async (name: string): Promise<number | false> => {
-    if (!name.trim()) return false
-    try {
-      const res = await fetch('/web/dataset/call_kw/res.partner/search_read', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({
-          jsonrpc: '2.0', method: 'call', id: 90,
-          params: { session_id: getSessionId(), model: 'res.partner', method: 'search_read', args: [[['name', 'ilike', name.trim()]]], kwargs: { fields: ['id'], limit: 1 } },
-        }),
-      })
-      const data = await res.json()
-      return data.result?.[0]?.id || false
-    } catch { return false }
-  }
-
   const lookupEmployeeByName = async (name: string): Promise<number | false> => {
     if (!name.trim()) return false
     try {
@@ -265,6 +252,21 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
       const data = await res.json()
       return data.result?.[0]?.id || false
     } catch { return false }
+  }
+
+  const searchFactories = async (query: string) => {
+    if (!query.trim()) { setFactoryResults([]); return }
+    try {
+      const res = await fetch('/web/dataset/call_kw/res.partner/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 95,
+          params: { session_id: getSessionId(), model: 'res.partner', method: 'search_read', args: [[['name', 'ilike', query.trim()]]], kwargs: { fields: ['id', 'name'], limit: 8 } },
+        }),
+      })
+      const data = await res.json()
+      setFactoryResults(data.result || [])
+    } catch { setFactoryResults([]) }
   }
 
   const searchBuyers = async (query: string, tripIndex: number) => {
@@ -452,8 +454,9 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     // # Accompanied With (many2many hr.employee)
     if (accompaniedEmpId) leavePayload.employee_ids = [[4, accompaniedEmpId]]
 
-    // # Can Be Reached By
-    if (reachByValue) leavePayload.others_reachable_by = reachByValue
+    // # Can Be Reached By — Personal uses checkboxes, Others uses dropdown
+    if (purpose === 'others' && othersCanReach) leavePayload.others_reachable_by = othersCanReach
+    else if (reachByValue) leavePayload.others_reachable_by = reachByValue
 
     // # Others purpose sub-fields
     if (purpose === 'others') {
@@ -464,14 +467,17 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
     // # Factory Visit
     if (purpose === 'factory') {
+      if (!factoryPartnerId) {
+        setPopup({ type: 'error', message: factoryName.trim() ? `Factory "${factoryName}" not found. Please search and select from the dropdown.` : 'Please search and select a Factory Name.' })
+        setSubmitting(false); return
+      }
       leavePayload.factory_visit_type = factoryTypeMap[factoryType] || factoryType.toLowerCase()
-      const partnerId = await lookupPartnerByName(factoryName)
       const lineData: Record<string, unknown> = {
+        partner_id:        factoryPartnerId,
         location:          factoryLocation || false,
         mode_of_transport: transportMode   || false,
         cost_of_transport: transportCost   ? parseFloat(transportCost) : 0,
       }
-      if (partnerId) lineData.partner_id = partnerId
       if (factoryType === 'RD') {
         lineData.new_collection  = rdNewCollection
         lineData.mill_development = rdMillDevelopment
@@ -794,22 +800,39 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                 ))}
               </div>
 
-              {/* # Factory Name */}
-              <div className="mb-3">
+              {/* # Factory Name — search dropdown */}
+              <div className="mb-3" style={{ position: 'relative' }}>
                 <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>
-                  Factory Name *{' '}
-                  {factoryType === 'SALES' && (
-                    <span style={{ color: colors.primary, fontWeight: 400 }}>(validated if exists)</span>
-                  )}
-                  {factoryType === 'PRODUCTION' && (
-                    <span style={{ color: colors.primary, fontWeight: 400 }}>(from system)</span>
-                  )}
+                  Factory Name *
                 </label>
-                <input type="text" value={factoryName}
-                  onChange={(e) => setFactoryName(e.target.value)}
-                  placeholder="Enter factory name"
+                <input
+                  type="text"
+                  value={factoryName}
+                  onChange={(e) => {
+                    setFactoryName(e.target.value)
+                    setFactoryPartnerId(false)
+                    searchFactories(e.target.value)
+                  }}
+                  placeholder="Search factory name..."
                   className="w-full p-3 rounded-xl text-sm focus:outline-none"
-                  style={inputStyle} />
+                  style={{ ...inputStyle, borderColor: factoryPartnerId ? '#22c55e' : inputStyle.borderColor }}
+                />
+                {factoryResults.length > 0 && !factoryPartnerId && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 180, overflowY: 'auto' }}>
+                    {factoryResults.map((f) => (
+                      <button key={f.id}
+                        onPointerDown={(e) => {
+                          e.preventDefault()
+                          setFactoryName(f.name)
+                          setFactoryPartnerId(f.id)
+                          setFactoryResults([])
+                        }}
+                        style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#1a1035', borderBottom: '1px solid #f3f4f6' }}>
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* # Location */}
@@ -1279,6 +1302,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                   <option value="phone">Phone</option>
                   <option value="email">Email</option>
                   <option value="whatsapp">WhatsApp</option>
+                  <option value="other">Other</option>
                 </select>
                 <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
               </div>
