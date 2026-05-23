@@ -78,6 +78,14 @@ const CURRENCIES = [
   'RMB', 'INR', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'IDR', 'MYR', 'SGD', 'THB', 'PKR', 'BDT', 'TRY', 'VND',
 ]
 
+// # Returns YYYY-MM-DD in LOCAL time (avoids UTC off-by-one-day on IST/CST)
+const getLocalDateStr = (d: Date): string => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 const emptyBusinessTrip = (): BusinessTrip => ({
   buyerName: '', buyerPartnerId: false, buyerResults: [], canReach: '',
   person1Name: '', person1Dept: '', person1Agenda: '',
@@ -149,14 +157,18 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   // # Basic Info
   const [accompaniedWith, setAccompaniedWith]         = useState<string>('')
 
-  // # Dates & Duration
-  const [startDate, setStartDate]                     = useState<string>('')
-  const [endDate, setEndDate]                         = useState<string>('')
+  // # Dates & Duration — default to today / tomorrow
+  const [startDate, setStartDate]                     = useState<string>(() => getLocalDateStr(new Date()))
+  const [endDate, setEndDate]                         = useState<string>(() => { const d = new Date(); d.setDate(d.getDate() + 1); return getLocalDateStr(d) })
   const [startTime, setStartTime]                     = useState<string>('09:30')
   const [endTime, setEndTime]                         = useState<string>('17:30')
   const [durationType, setDurationType]               = useState<'time' | 'duration'>('time')
   const [durationDescription, setDurationDescription] = useState<string>('morning')
   const [durationDays, setDurationDays]               = useState<string>('')
+
+  // # Conflict check — existing leave on selected dates
+  const [conflictLeaves, setConflictLeaves]           = useState<{ id: number; type: string; from: string; to: string }[]>([])
+  const [conflictChecking, setConflictChecking]       = useState(false)
 
   // # Additional
   const [description, setDescription]                 = useState<string>('')
@@ -238,6 +250,50 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
       setLeaveTypesLoading(false)
     }
   }
+
+  // # Check if this employee already has an approved/pending leave overlapping the selected dates
+  const checkConflicts = async (from: string, to: string) => {
+    const empId = session?.employeeId
+    if (!empId || !from) { setConflictLeaves([]); return }
+    setConflictChecking(true)
+    try {
+      const res = await fetch('/web/dataset/call_kw/hr.leave/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 70,
+          params: {
+            session_id: getSessionId(),
+            model: 'hr.leave', method: 'search_read',
+            args: [[
+              ['employee_id', '=', empId],
+              ['state', 'in', ['validate', 'validate1', 'confirm']],
+              ['date_from', '<=', to + ' 23:59:59'],
+              ['date_to',   '>=', from + ' 00:00:00'],
+            ]],
+            kwargs: { fields: ['id', 'holiday_status_id', 'date_from', 'date_to'], limit: 5 },
+          },
+        }),
+      })
+      const data = await res.json()
+      const hits = (data.result || []).filter(
+        (r: { holiday_status_id: unknown }) => Array.isArray(r.holiday_status_id)
+      )
+      setConflictLeaves(hits.map((r: { id: number; holiday_status_id: [number, string]; date_from: string; date_to: string }) => ({
+        id: r.id, type: r.holiday_status_id[1], from: r.date_from, to: r.date_to,
+      })))
+    } catch {
+      setConflictLeaves([])
+    } finally {
+      setConflictChecking(false)
+    }
+  }
+
+  // # Re-run conflict check whenever dates or duration mode changes
+  useEffect(() => {
+    if (!startDate) { setConflictLeaves([]); return }
+    const toDate = durationType === 'time' && endDate ? endDate : startDate
+    checkConflicts(startDate, toDate)
+  }, [startDate, endDate, durationType])
 
   const lookupEmployeeByName = async (name: string): Promise<number | false> => {
     if (!name.trim()) return false
@@ -384,6 +440,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
       if (!endDate)            { showError('Please select a To Date.'); return }
       if (endDate < startDate) { showError('To Date cannot be before From Date.'); return }
     }
+    if (conflictLeaves.length > 0) { showError('You already have an approved or pending leave on the selected dates. Please choose different dates.'); return }
     const employeeId = session?.employeeId
     if (!employeeId) { showError('Employee not found. Please log out and log back in.'); return }
     setSubmitting(true)
@@ -430,7 +487,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     const reachByValue = reachBy.phone ? 'phone' : reachBy.email ? 'email' : reachBy.whatsapp ? 'whatsapp' : false
 
     // # name = the actual description text (required by Odoo)
-    const leaveName = [description, meetingNotes].filter(Boolean).join('\n') || leaveNote || `${PURPOSE_OPTIONS.find(p => p.value === purpose)?.label ?? 'Leave'} Request`
+    const leaveName = description || leaveNote || `${PURPOSE_OPTIONS.find(p => p.value === purpose)?.label ?? 'Leave'} Request`
 
     // # Accompanied With — many2many hr.employee
     const accompaniedEmpId = accompaniedWith ? await lookupEmployeeByName(accompaniedWith) : false
@@ -489,11 +546,13 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
         lineData.others          = salesOthers
         lineData.specify_others  = salesOthersText || false
       } else {
-        // PRODUCTION — store order + issues in specify_others
-        const prodInfo = [prodOrderNumber, ...prodIssues.filter(Boolean), prodOthersText].filter(Boolean).join(', ')
-        lineData.others         = true
-        lineData.specify_others = prodInfo || false
+        // PRODUCTION — map to proper backend fields
+        lineData.order_number   = prodOrderNumber || false
+        lineData.issue_1        = [...prodIssues.filter(Boolean), prodOthersText].filter(Boolean).join(', ') || false
+        lineData.others         = !!(prodOthersText)
+        lineData.specify_others = prodOthersText || false
       }
+      lineData.visit_description = factoryDescription || false
       leavePayload.factory_visit_line_ids = [[0, 0, lineData]]
     }
 
@@ -531,11 +590,14 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
         // # All required fields in every business.lines record
         const baseLine: Record<string, unknown> = {
-          partner_id:     partnerId,
-          country_id:     countryId,
-          travel_purpose: businessTravelPurpose,
-          location:       businessLocation || false,
-          description:    businessDescription || false,
+          partner_id:       partnerId,
+          country_id:       countryId,
+          travel_purpose:   businessTravelPurpose,
+          location:         businessLocation        || false,
+          description:      businessDescription     || false,
+          mode_of_transport: businessTransportMode  || false,
+          cost_of_transport: businessTransportCost  ? parseFloat(businessTransportCost) : 0,
+          meeting_notes:    meetingNotes             || false,
         }
 
         // # Meeting lines — one per person
@@ -1408,6 +1470,24 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
             </div>
           )}
 
+          {/* # Conflict warning — existing leave on selected dates */}
+          {conflictChecking && (
+            <div className="mt-2 p-3 rounded-xl" style={{ backgroundColor: '#fef9c3', border: '1px solid #fbbf24' }}>
+              <p className="text-xs font-medium" style={{ color: '#92400e' }}>⏳ Checking for existing leave on these dates...</p>
+            </div>
+          )}
+          {!conflictChecking && conflictLeaves.length > 0 && (
+            <div className="mt-2 p-3 rounded-xl" style={{ backgroundColor: '#fef2f2', border: '1px solid #fca5a5' }}>
+              <p className="text-xs font-bold mb-1" style={{ color: '#dc2626' }}>⚠ You already have leave on these dates:</p>
+              {conflictLeaves.map(c => (
+                <p key={c.id} className="text-xs mt-1" style={{ color: '#991b1b' }}>
+                  • {c.type}: {new Date(c.from).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} → {new Date(c.to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+              ))}
+              <p className="text-xs mt-2 font-semibold" style={{ color: '#dc2626' }}>Please select different dates to proceed.</p>
+            </div>
+          )}
+
           {/* # DURATION — single day, no To Date */}
           {durationType === 'duration' && (
             <div className="grid grid-cols-2 gap-2">
@@ -1511,9 +1591,9 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               style={{ border: `1px solid ${colors.borderMedium}`, backgroundColor: colors.cardBg, color: colors.textSecondary, cursor: 'pointer' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} disabled={submitting}
+            <button onClick={handleSubmit} disabled={submitting || conflictLeaves.length > 0}
               className="py-4 rounded-xl font-bold text-sm text-white"
-              style={{ background: submitting ? '#d1d5db' : colors.gradientButton, border: 'none', cursor: submitting ? 'not-allowed' : 'pointer' }}>
+              style={{ background: (submitting || conflictLeaves.length > 0) ? '#d1d5db' : colors.gradientButton, border: 'none', cursor: (submitting || conflictLeaves.length > 0) ? 'not-allowed' : 'pointer' }}>
               {submitting ? '⏳ Submitting...' : '✓ Submit Request'}
             </button>
           </div>
