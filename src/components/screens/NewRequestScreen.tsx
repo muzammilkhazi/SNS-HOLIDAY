@@ -2,7 +2,8 @@
 // sns-holiday-app — New Time Off Request Screen
 // ============================================
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Html5Qrcode } from 'html5-qrcode'
 import type { ScreenName } from '../../types'
 import type { UserSession } from '../../services/api'
 import { getSessionId } from '../../services/api'
@@ -102,7 +103,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
   // # Personal
   const [leaveNote, setLeaveNote]                     = useState<string>('')
-  const [reachBy, setReachBy]                         = useState({ phone: false, email: false, whatsapp: false })
+  const [reachBy, setReachBy]                         = useState({ phone: false, email: false, whatsApp: false })
 
   // # Factory
   const [factoryType, setFactoryType]                 = useState<string>('RD')
@@ -147,6 +148,8 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   const [businessTrips, setBusinessTrips]               = useState<BusinessTrip[]>([emptyBusinessTrip()])
   const [buyerArticles, setBuyerArticles]               = useState<BuyerArticle[]>([{ articleNumber: '', priority: '', itemDescription: '' }])
   const [meetingNotes, setMeetingNotes]                 = useState<string>('')
+  const [scanningArticleIndex, setScanningArticleIndex] = useState<number | null>(null)
+  const [scannerError, setScannerError]                 = useState<string | null>(null)
 
   // # Others
   const [othersVisitType, setOthersVisitType]         = useState<string>('')
@@ -290,7 +293,8 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
   // # Re-run conflict check whenever dates or duration mode changes
   useEffect(() => {
-    if (!startDate) { setConflictLeaves([]); return }
+    setConflictLeaves([]) // clear immediately so old conflicts don't block the form
+    if (!startDate) return
     const toDate = durationType === 'time' && endDate ? endDate : startDate
     checkConflicts(startDate, toDate)
   }, [startDate, endDate, durationType])
@@ -380,26 +384,57 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   const removeBuyerArticle = (index: number) =>
     setBuyerArticles(prev => prev.filter((_, i) => i !== index))
 
-  const handleBarcodeCapture = async (file: File, index: number) => {
-    try {
-      if ('BarcodeDetector' in window) {
-        type BarcodeDetectorType = new (opts: { formats: string[] }) => { detect: (img: ImageBitmap) => Promise<{ rawValue: string }[]> }
-        const Detector = (window as unknown as { BarcodeDetector: BarcodeDetectorType }).BarcodeDetector
-        const detector = new Detector({ formats: ['qr_code', 'code_39', 'code_93', 'code_128', 'ean_13', 'ean_8', 'upc_a'] })
-        const img = await createImageBitmap(file)
-        const barcodes = await detector.detect(img)
-        if (barcodes.length > 0) {
-          updateBuyerArticle(index, 'articleNumber', barcodes[0].rawValue)
-        } else {
-          showError('No barcode found in image. Please enter the article number manually.')
-        }
-      } else {
-        showError('Barcode scanning not supported on this browser. Please enter manually.')
-      }
-    } catch {
-      showError('Could not scan barcode. Please enter manually.')
+  const qrScannerRef    = useRef<Html5Qrcode | null>(null)
+  const scannerStarted  = useRef(false)
+
+  const stopScanner = useCallback(async () => {
+    if (qrScannerRef.current && scannerStarted.current) {
+      try { await qrScannerRef.current.stop() } catch { /* ignore */ }
+      scannerStarted.current = false
     }
-  }
+    qrScannerRef.current = null
+    setScanningArticleIndex(null)
+    setScannerError(null)
+  }, [])
+
+  useEffect(() => {
+    if (scanningArticleIndex === null) return
+
+    const scanner = new Html5Qrcode('qr-scanner-view', { verbose: false })
+    qrScannerRef.current = scanner
+
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 12, qrbox: { width: 260, height: 260 } },
+      (decodedText) => {
+        updateBuyerArticle(scanningArticleIndex, 'articleNumber', decodedText)
+        scanner.stop().catch(() => {}).finally(() => {
+          scannerStarted.current = false
+          setScanningArticleIndex(null)
+          setScannerError(null)
+        })
+      },
+      () => { /* scanning frame — no action needed */ }
+    ).then(() => {
+      scannerStarted.current = true
+    }).catch((err: unknown) => {
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+      if (msg.includes('permission') || msg.includes('denied') || msg.includes('notallowed')) {
+        setScannerError('Camera permission denied. Please tap Allow when the browser asks for camera access.')
+      } else if (msg.includes('notfound') || msg.includes('no camera')) {
+        setScannerError('No camera found on this device.')
+      } else {
+        setScannerError(`Could not start camera: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    })
+
+    return () => {
+      if (scannerStarted.current) {
+        scanner.stop().catch(() => {})
+        scannerStarted.current = false
+      }
+    }
+  }, [scanningArticleIndex])
 
 
   const fileToBase64 = (file: File): Promise<string> =>
@@ -439,7 +474,11 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     if (durationType === 'time') {
       if (!endDate)            { showError('Please select a To Date.'); return }
       if (endDate < startDate) { showError('To Date cannot be before From Date.'); return }
+      if (endDate === startDate && endTime <= startTime) {
+        showError('End time cannot be earlier than or equal to start time for the same day.'); return
+      }
     }
+    if (conflictChecking) { showError('Please wait — checking for existing leaves on selected dates.'); return }
     if (conflictLeaves.length > 0) { showError('You already have an approved or pending leave on the selected dates. Please choose different dates.'); return }
     const employeeId = session?.employeeId
     if (!employeeId) { showError('Employee not found. Please log out and log back in.'); return }
@@ -461,30 +500,13 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     // # Half-day fields for duration mode
     const isHalfDay = durationType === 'duration' && durationDescription !== 'full'
 
-    let dateFrom: string
-    let dateTo: string
-    if (durationType === 'duration') {
-      if (durationDescription === 'morning') {
-        dateFrom = `${safeStart} 09:30:00`
-        dateTo   = `${safeStart} 13:00:00`
-      } else if (durationDescription === 'afternoon') {
-        dateFrom = `${safeStart} 13:00:00`
-        dateTo   = `${safeStart} 17:30:00`
-      } else {
-        dateFrom = `${safeStart} 09:30:00`
-        dateTo   = `${safeStart} 17:30:00`
-      }
-    } else {
-      dateFrom = `${safeStart} 09:30:00`
-      dateTo   = `${finalEndDate} 17:30:00`
-    }
 
     // # Purpose → Odoo selection value
     const purposeMap: Record<string, string> = { personal: 'personal', factory: 'factory_visit', business: 'business_trip', others: 'others' }
     const factoryTypeMap: Record<string, string> = { RD: 'rd', SALES: 'sales', PRODUCTION: 'production' }
 
-    // # Single reachable-by value (Odoo accepts one)
-    const reachByValue = reachBy.phone ? 'phone' : reachBy.email ? 'email' : reachBy.whatsapp ? 'whatsapp' : false
+    // # Single selection — Odoo others_reachable_by is a selection field
+    const reachByValue = reachBy.phone ? 'phone' : reachBy.email ? 'email' : reachBy.whatsApp ? 'whatsapp' : false
 
     // # name = the actual description text (required by Odoo)
     const leaveName = description || leaveNote || `${PURPOSE_OPTIONS.find(p => p.value === purpose)?.label ?? 'Leave'} Request`
@@ -496,8 +518,6 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
       holiday_status_id: timeOffTypeId,
       request_date_from: safeStart,
       request_date_to:   finalEndDate,
-      date_from:         dateFrom,
-      date_to:           dateTo,
       employee_id:       employeeId,
       name:              leaveName,
       leave_purpose:     purposeMap[purpose] || purpose,
@@ -506,6 +526,9 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     if (isHalfDay) {
       leavePayload.request_unit_half = true
       leavePayload.request_date_from_period = durationDescription === 'morning' ? 'am' : 'pm'
+      leavePayload.duration_text = durationDescription === 'morning' ? 'Morning Session' : 'Afternoon Session'
+    } else if (durationType === 'duration' && durationDescription === 'full') {
+      leavePayload.duration_text = 'Full Day'
     }
 
     // # Accompanied With (many2many hr.employee)
@@ -824,14 +847,13 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                 Can Be Reached By
               </label>
               <div className="flex flex-col gap-2">
-                {(['phone', 'email', 'whatsapp'] as const).map((key) => (
+                {([['phone', 'Phone'], ['email', 'Email'], ['whatsApp', 'WhatsApp']] as const).map(([key, label]) => (
                   <label key={key} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={reachBy[key]}
-                      onChange={() => setReachBy(prev => ({ ...prev, [key]: !prev[key] }))}
+                    <input type="radio" name="reachBy"
+                      checked={reachBy[key]}
+                      onChange={() => setReachBy({ phone: false, email: false, whatsApp: false, [key]: true })}
                       style={{ accentColor: colors.primary }} />
-                    <span className="text-sm" style={{ color: colors.textPrimary }}>
-                      {key.charAt(0).toUpperCase() + key.slice(1)}
-                    </span>
+                    <span className="text-sm" style={{ color: colors.textPrimary }}>{label}</span>
                   </label>
                 ))}
               </div>
@@ -1081,10 +1103,11 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                   Description
                 </label>
                 <textarea value={factoryDescription}
-                  onChange={(e) => setFactoryDescription(e.target.value)}
+                  onChange={(e) => { if (e.target.value.length <= 500) setFactoryDescription(e.target.value) }}
                   placeholder="Additional details about the visit" rows={3}
                   className="w-full p-3 rounded-xl text-sm focus:outline-none resize-none"
                   style={inputStyle} />
+                <p className="text-xs mt-1" style={{ color: colors.textMuted }}>{factoryDescription.length}/500 characters</p>
               </div>
 
             </div>
@@ -1157,10 +1180,11 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               <div className="mb-3">
                 <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>Description</label>
                 <textarea value={businessDescription}
-                  onChange={(e) => setBusinessDescription(e.target.value)}
+                  onChange={(e) => { if (e.target.value.length <= 500) setBusinessDescription(e.target.value) }}
                   placeholder="Details about the business trip" rows={3}
                   className="w-full p-3 rounded-xl text-sm focus:outline-none resize-none"
                   style={inputStyle} />
+                <p className="text-xs mt-1" style={{ color: colors.textMuted }}>{businessDescription.length}/500 characters</p>
               </div>
 
               <div className="mb-3">
@@ -1242,7 +1266,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                       <option value="">Can be reached by</option>
                       <option value="phone">Phone</option>
                       <option value="email">Email</option>
-                      <option value="whatsapp">WhatsApp</option>
+                      <option value="whatsApp">WhatsApp</option>
                     </select>
                     <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
                   </div>
@@ -1290,17 +1314,16 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                         onChange={(e) => updateBuyerArticle(index, 'articleNumber', e.target.value)}
                         style={{ ...fieldInput, flex: 1, marginBottom: 0 }}
                       />
-                      <label style={{
-                        width: 44, height: 44, borderRadius: 8, flexShrink: 0, cursor: 'pointer',
-                        backgroundColor: colors.primary, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <input
-                          type="file" accept="image/*" capture="environment"
-                          style={{ display: 'none' }}
-                          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBarcodeCapture(f, index) }}
-                        />
+                      <button
+                        type="button"
+                        onClick={() => { setScannerError(null); setScanningArticleIndex(index) }}
+                        style={{
+                          width: 44, height: 44, borderRadius: 8, flexShrink: 0,
+                          backgroundColor: colors.primary, display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', border: 'none', cursor: 'pointer',
+                        }}>
                         <span style={{ fontSize: 20 }}>📷</span>
-                      </label>
+                      </button>
                     </div>
 
                     {/* # Priority dropdown */}
@@ -1319,10 +1342,11 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     <textarea
                       placeholder="Description"
                       value={article.itemDescription}
-                      onChange={(e) => updateBuyerArticle(index, 'itemDescription', e.target.value)}
+                      onChange={(e) => { if (e.target.value.length <= 500) updateBuyerArticle(index, 'itemDescription', e.target.value) }}
                       rows={2}
                       style={{ ...fieldInput, marginBottom: 0, resize: 'none' as const }}
                     />
+                    <p style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{article.itemDescription.length}/500</p>
                   </div>
                 ))}
 
@@ -1340,11 +1364,12 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                 <textarea
                   placeholder="Notes from the meeting..."
                   value={meetingNotes}
-                  onChange={(e) => setMeetingNotes(e.target.value)}
+                  onChange={(e) => { if (e.target.value.length <= 500) setMeetingNotes(e.target.value) }}
                   rows={4}
                   className="w-full p-3 rounded-xl text-sm focus:outline-none resize-none"
                   style={inputStyle}
                 />
+                <p className="text-xs mt-1" style={{ color: colors.textMuted }}>{meetingNotes.length}/500 characters</p>
               </div>
 
             </div>
@@ -1363,7 +1388,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                   <option value="">Can be reached by</option>
                   <option value="phone">Phone</option>
                   <option value="email">Email</option>
-                  <option value="whatsapp">WhatsApp</option>
+                  <option value="whatsApp">WhatsApp</option>
                   <option value="other">Other</option>
                 </select>
                 <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
@@ -1417,7 +1442,17 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               {durationType === 'time' ? 'From Date *' : 'Date *'}
             </label>
             <input type="date" value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              min={getLocalDateStr(new Date())} max="2029-12-31"
+              onChange={(e) => {
+                const newStart = e.target.value
+                setStartDate(newStart)
+                // Always set To Date to next day when From Date changes
+                if (newStart) {
+                  const d = new Date(newStart + 'T00:00:00')
+                  d.setDate(d.getDate() + 1)
+                  setEndDate(getLocalDateStr(d))
+                }
+              }}
               className="w-full p-3 rounded-xl text-sm focus:outline-none"
               style={{ ...inputStyle, width: '100%' }} />
           </div>
@@ -1447,14 +1482,13 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
             <div>
               <div className="mb-3">
                 <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>To Date *</label>
-                <input type="date" value={endDate} min={startDate || ''}
+                <input type="date" value={endDate} min={startDate || ''} max="2029-12-31"
                   onChange={(e) => setEndDate(e.target.value)}
                   className="w-full p-3 rounded-xl text-sm focus:outline-none"
                   style={{ ...inputStyle, width: '100%' }} />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  
                   <label className="block text-xs mb-1" style={{ color: colors.textMuted }}>Start Time</label>
                   <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
                     className="w-full p-3 rounded-xl text-sm focus:outline-none"
@@ -1467,6 +1501,14 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     style={{ ...inputStyle, width: '100%' }} />
                 </div>
               </div>
+              {/* # Live time error — same day with end ≤ start */}
+              {startDate && endDate && startDate === endDate && startTime && endTime && endTime <= startTime && (
+                <div className="mt-2 p-2 rounded-lg" style={{ backgroundColor: '#fef2f2', border: '1px solid #fca5a5' }}>
+                  <p className="text-xs font-semibold" style={{ color: '#dc2626' }}>
+                    ⚠ End time must be after start time when both dates are the same.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1591,15 +1633,80 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               style={{ border: `1px solid ${colors.borderMedium}`, backgroundColor: colors.cardBg, color: colors.textSecondary, cursor: 'pointer' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} disabled={submitting || conflictLeaves.length > 0}
-              className="py-4 rounded-xl font-bold text-sm text-white"
-              style={{ background: (submitting || conflictLeaves.length > 0) ? '#d1d5db' : colors.gradientButton, border: 'none', cursor: (submitting || conflictLeaves.length > 0) ? 'not-allowed' : 'pointer' }}>
-              {submitting ? '⏳ Submitting...' : '✓ Submit Request'}
-            </button>
+            {(() => {
+              const timeConflict = durationType === 'time' && startDate === endDate && !!startTime && !!endTime && endTime <= startTime
+              const blocked = submitting || conflictChecking || conflictLeaves.length > 0 || timeConflict
+              return (
+                <button onClick={handleSubmit} disabled={blocked}
+                  className="py-4 rounded-xl font-bold text-sm text-white"
+                  style={{ background: blocked ? '#d1d5db' : colors.gradientButton, border: 'none', cursor: blocked ? 'not-allowed' : 'pointer' }}>
+                  {submitting ? '⏳ Submitting...' : '✓ Submit Request'}
+                </button>
+              )
+            })()}
           </div>
         </div>
 
       </div>
+
+      {/* ===== LIVE QR SCANNER OVERLAY ===== */}
+      {scanningArticleIndex !== null && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          backgroundColor: '#000',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '16px 20px',
+            background: colors.gradientHeader,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Scan QR Code</span>
+            <button onClick={stopScanner} style={{
+              background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: '50%',
+              width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>✕</button>
+          </div>
+
+          {/* Scanner viewfinder */}
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            {scannerError ? (
+              <div style={{
+                position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Camera Error</p>
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>{scannerError}</p>
+              </div>
+            ) : (
+              <>
+                <div id="qr-scanner-view" style={{ width: '100%', height: '100%' }} />
+                <p style={{
+                  position: 'absolute', bottom: 20, left: 0, right: 0,
+                  textAlign: 'center', fontSize: 13, color: 'rgba(255,255,255,0.8)',
+                }}>
+                  Point at the QR code — it will scan automatically
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* Enter manually button */}
+          <div style={{ padding: '12px 20px', paddingBottom: 'calc(env(safe-area-inset-bottom, 16px) + 12px)', background: '#000' }}>
+            <button onClick={stopScanner} style={{
+              width: '100%', padding: '14px', borderRadius: 14,
+              border: '1.5px solid rgba(255,255,255,0.3)', background: 'transparent',
+              cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#fff',
+            }}>
+              Enter Manually Instead
+            </button>
+          </div>
+        </div>
+      )}
 
       <BottomNav active="newRequest" setActiveScreen={setActiveScreen} />
     </div>

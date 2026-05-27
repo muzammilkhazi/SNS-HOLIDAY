@@ -13,8 +13,8 @@ interface BottomNavProps {
 
 const BottomNav = ({ active, setActiveScreen }: BottomNavProps) => {
   return (
-    <div style={{ backgroundColor: colors.cardBg, borderTopColor: colors.borderMedium }}
-      className="border-t px-4 py-3 shadow-lg">
+    <div style={{ backgroundColor: colors.cardBg, borderTopColor: colors.borderMedium, paddingBottom: 'env(safe-area-inset-bottom, 8px)' }}
+      className="border-t px-4 pt-3 shadow-lg">
       <div className="flex justify-around items-center">
 
         {/* # Home tab */}

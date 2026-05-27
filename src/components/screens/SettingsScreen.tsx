@@ -221,10 +221,10 @@ const SettingsScreen = ({ setActiveScreen, session }: SettingsScreenProps) => {
       {/* # Terms / Privacy Modal */}
       {modal !== null && (
         <div style={{
-          position: 'absolute', inset: 0,
+          position: 'fixed', inset: 0,
           backgroundColor: 'rgba(0,0,0,0.5)',
           display: 'flex', alignItems: 'flex-end',
-          zIndex: 50,
+          zIndex: 9999,
         }}>
           <div style={{
             backgroundColor: '#ffffff',
@@ -270,7 +270,7 @@ const SettingsScreen = ({ setActiveScreen, session }: SettingsScreenProps) => {
             </div>
 
             {/* # Modal Close Button */}
-            <div style={{ padding: '12px 20px 24px' }}>
+            <div style={{ padding: '12px 20px', paddingBottom: 'calc(env(safe-area-inset-bottom, 16px) + 16px)' }}>
               <button
                 onClick={() => setModal(null)}
                 style={{
