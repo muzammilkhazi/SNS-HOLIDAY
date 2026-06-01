@@ -2,7 +2,7 @@
 // sns-holiday-app — New Time Off Request Screen
 // ============================================
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 import type { ScreenName } from '../../types'
 import type { UserSession } from '../../services/api'
@@ -173,6 +173,33 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   const [conflictLeaves, setConflictLeaves]           = useState<{ id: number; type: string; from: string; to: string }[]>([])
   const [conflictChecking, setConflictChecking]       = useState(false)
 
+  // # Public holidays + stress days fetched from Odoo
+  const [publicHolidays, setPublicHolidays]           = useState<{ name: string; dateFrom: string; dateTo: string; type: 'holiday' | 'stress' }[]>([])
+
+  // # Auto-calculated number of days from selected dates
+  const calculatedDays = useMemo(() => {
+    if (durationType === 'duration') {
+      return durationDescription === 'full' ? 1 : 0.5
+    }
+    if (!startDate || !endDate) return 0
+    const start = new Date(startDate + 'T00:00:00')
+    const end   = new Date(endDate   + 'T00:00:00')
+    const diff  = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    return diff > 0 ? diff : 0
+  }, [startDate, endDate, durationType, durationDescription])
+
+  // # Public holidays that fall within the currently selected date range
+  const holidaysInRange = useMemo(() => {
+    if (!startDate || publicHolidays.length === 0) return []
+    const rangeFrom = startDate
+    const rangeTo   = durationType === 'time' && endDate ? endDate : startDate
+    return publicHolidays.filter(h => {
+      const hFrom = h.dateFrom.slice(0, 10)
+      const hTo   = h.dateTo.slice(0, 10)
+      return hFrom <= rangeTo && hTo >= rangeFrom
+    })
+  }, [startDate, endDate, durationType, publicHolidays])
+
   // # Additional
   const [description, setDescription]                 = useState<string>('')
   const [attachmentFile, setAttachmentFile]           = useState<File | null>(null)
@@ -182,8 +209,19 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   const [popup, setPopup]                             = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const scrollRef                                     = useRef<HTMLDivElement>(null)
 
+  // # Validation — track which fields have been blurred + whether submit was attempted
+  const [touched, setTouched]                         = useState<Record<string, boolean>>({})
+  const [submitAttempted, setSubmitAttempted]         = useState(false)
+
+  // # Refs for scroll-to-error on submit
+  const factoryNameRef       = useRef<HTMLDivElement>(null)
+  const businessCountryRef   = useRef<HTMLDivElement>(null)
+  const travelPurposeRef     = useRef<HTMLDivElement>(null)
+  const buyerSectionRef      = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     fetchLeaveTypes()
+    fetchPublicHolidays()
     return () => {}
   }, [])
 
@@ -254,6 +292,48 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     }
   }
 
+  const fetchPublicHolidays = async () => {
+    try {
+      // # Fetch public holidays from resource.calendar.leaves
+      const holidayRes = await fetch('/web/dataset/call_kw/resource.calendar.leaves/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 201,
+          params: {
+            session_id: getSessionId(),
+            model: 'resource.calendar.leaves', method: 'search_read',
+            args: [[['resource_id', '=', false]]],
+            kwargs: { fields: ['name', 'date_from', 'date_to'], limit: 200 },
+          },
+        }),
+      })
+      const holidayData = await holidayRes.json()
+      const holidays = (holidayData.result || []).map((h: { name: string; date_from: string; date_to: string }) => ({
+        name: h.name, dateFrom: h.date_from.slice(0, 10), dateTo: h.date_to.slice(0, 10), type: 'holiday' as const,
+      }))
+
+      // # Fetch stress days from hr.leave.stress.day
+      const stressRes = await fetch('/web/dataset/call_kw/hr.leave.stress.day/search_read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0', method: 'call', id: 202,
+          params: {
+            session_id: getSessionId(),
+            model: 'hr.leave.stress.day', method: 'search_read',
+            args: [[]],
+            kwargs: { fields: ['name', 'start_date', 'end_date'], limit: 200 },
+          },
+        }),
+      })
+      const stressData = await stressRes.json()
+      const stressDays = (stressData.result || []).map((s: { name: string; start_date: string; end_date: string }) => ({
+        name: s.name, dateFrom: s.start_date.slice(0, 10), dateTo: s.end_date.slice(0, 10), type: 'stress' as const,
+      }))
+
+      setPublicHolidays([...holidays, ...stressDays])
+    } catch { /* silent — holidays are informational only */ }
+  }
+
   // # Check if this employee already has an approved/pending leave overlapping the selected dates
   const checkConflicts = async (from: string, to: string) => {
     const empId = session?.employeeId
@@ -298,6 +378,22 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
     const toDate = durationType === 'time' && endDate ? endDate : startDate
     checkConflicts(startDate, toDate)
   }, [startDate, endDate, durationType])
+
+  // # Auto-reset all error state the moment user edits anything after a failed submit
+  useEffect(() => {
+    if (popup?.type !== 'error' && !submitAttempted) return
+    setPopup(null)
+    setConflictLeaves([])
+    setSubmitAttempted(false)
+    setTouched({})
+  }, [
+    startDate, endDate, startTime, endTime, durationType, durationDescription,
+    purpose, timeOffTypeId, leaveNote, description, accompaniedWith,
+    factoryName, factoryType, factoryLocation, transportMode, transportCost,
+    businessCountry, businessTravelPurpose, businessLocation, businessDescription,
+    businessTrips, buyerArticles, meetingNotes,
+    othersVisitType, othersCanReach, othersLocation, othersAgenda,
+  ])
 
   const lookupEmployeeByName = async (name: string): Promise<number | false> => {
     if (!name.trim()) return false
@@ -469,6 +565,22 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
 
   const handleSubmit = async () => {
     setPopup(null)
+    setSubmitAttempted(true)
+
+    // # Scroll to first empty mandatory field and block submit
+    const scrollToRef = (ref: React.RefObject<HTMLDivElement | null>) => {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    if (purpose === 'factory' && !factoryPartnerId) { scrollToRef(factoryNameRef); return }
+    if (purpose === 'business') {
+      if (!businessCountryId)      { scrollToRef(businessCountryRef); return }
+      if (!businessTravelPurpose)  { scrollToRef(travelPurposeRef);   return }
+      const hasInvalidBuyer = businessTrips.some(t => t.buyerName && !t.buyerPartnerId)
+      const hasMissingBuyer = businessTrips.every(t => !t.buyerName.trim())
+      const hasMissingPerson = businessTrips.some(t => t.buyerName && !t.person1Name.trim())
+      if (hasMissingBuyer || hasInvalidBuyer || hasMissingPerson) { scrollToRef(buyerSectionRef); return }
+    }
+
     if (!timeOffTypeId) { showError('Please select a leave type.'); return }
     if (!startDate)     { showError('Please select a From Date.'); return }
     if (durationType === 'time') {
@@ -674,7 +786,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
         const isInsufficient = rawMsg.toLowerCase().includes('sufficient') || rawMsg.toLowerCase().includes('not enough')
         let errorMsg = rawMsg
         if (isOverlap) {
-          errorMsg = 'Leave already exists for these dates. Please check your existing request.'
+          errorMsg = `Leave conflict detected.\n\n${rawMsg}`
         } else if (isInsufficient) {
           errorMsg = 'Insufficient leave balance. Please contact HR to add or approve your allocation.'
         }
@@ -709,6 +821,15 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
   }
 
   const divider = <div className="mb-5" style={{ borderTop: `1px solid ${colors.borderMedium}` }} />
+
+  // # Mark a field as touched (blurred) so red border activates
+  const touch = (key: string) => setTouched(prev => ({ ...prev, [key]: true }))
+
+  // # Returns true if field should show red border
+  const fieldError = (key: string, isEmpty: boolean) => (submitAttempted || !!touched[key]) && isEmpty
+
+  // # Red border style override
+  const errStyle = (hasErr: boolean): React.CSSProperties => hasErr ? { borderColor: '#ef4444', borderWidth: 2 } : {}
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.background }}>
@@ -885,7 +1006,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               </div>
 
               {/* # Factory Name — search dropdown */}
-              <div className="mb-3" style={{ position: 'relative' }}>
+              <div ref={factoryNameRef} className="mb-3" style={{ position: 'relative' }}>
                 <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>
                   Factory Name *
                 </label>
@@ -897,9 +1018,10 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     setFactoryPartnerId(false)
                     searchFactories(e.target.value)
                   }}
+                  onBlur={() => touch('factoryName')}
                   placeholder="Search factory name..."
                   className="w-full p-3 rounded-xl text-sm focus:outline-none"
-                  style={{ ...inputStyle, borderColor: factoryPartnerId ? '#22c55e' : inputStyle.borderColor }}
+                  style={{ ...inputStyle, borderColor: factoryPartnerId ? '#22c55e' : fieldError('factoryName', !factoryPartnerId) ? '#ef4444' : inputStyle.borderColor, borderWidth: fieldError('factoryName', !factoryPartnerId) ? 2 : 1 }}
                 />
                 {factoryResults.length > 0 && !factoryPartnerId && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 180, overflowY: 'auto' }}>
@@ -1118,7 +1240,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
             <div>
 
               {/* # Top-level trip fields */}
-              <div className="mb-3" style={{ position: 'relative' }}>
+              <div ref={businessCountryRef} className="mb-3" style={{ position: 'relative' }}>
                 <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>Country *</label>
                 <input
                   type="text"
@@ -1128,9 +1250,10 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     setBusinessCountryId(false)
                     searchCountries(e.target.value)
                   }}
+                  onBlur={() => touch('businessCountry')}
                   placeholder="Search country..."
                   className="w-full p-3 rounded-xl text-sm focus:outline-none"
-                  style={{ ...inputStyle, borderColor: businessCountryId ? '#22c55e' : inputStyle.borderColor }}
+                  style={{ ...inputStyle, borderColor: businessCountryId ? '#22c55e' : fieldError('businessCountry', !businessCountryId) ? '#ef4444' : inputStyle.borderColor, borderWidth: fieldError('businessCountry', !businessCountryId) ? 2 : 1 }}
                 />
                 {countrySearching && (
                   <p style={{ fontSize: 11, color: colors.textMuted, marginTop: 4 }}>Searching...</p>
@@ -1153,13 +1276,14 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                 )}
               </div>
 
-              <div className="mb-3">
-                <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>Travel Purpose</label>
+              <div ref={travelPurposeRef} className="mb-3">
+                <label className="block text-xs font-semibold mb-1" style={{ color: colors.textSecondary }}>Travel Purpose *</label>
                 <div style={{ position: 'relative' }}>
                   <select value={businessTravelPurpose}
                     onChange={(e) => setBusinessTravelPurpose(e.target.value)}
+                    onBlur={() => touch('travelPurpose')}
                     className="w-full p-3 rounded-xl text-sm focus:outline-none"
-                    style={{ ...inputStyle, width: '100%', appearance: 'none', paddingRight: 40 }}>
+                    style={{ ...inputStyle, width: '100%', appearance: 'none', paddingRight: 40, ...errStyle(fieldError('travelPurpose', !businessTravelPurpose)) }}>
                     {TRAVEL_PURPOSES.map((p) => (
                       <option key={p.value} value={p.value}>{p.label}</option>
                     ))}
@@ -1223,6 +1347,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
               </div>
 
               {/* # Buyer cards */}
+              <div ref={buyerSectionRef}>
               {businessTrips.map((trip, index) => (
                 <div key={index} style={{ marginBottom: 12, padding: 12, backgroundColor: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1236,14 +1361,15 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                   <div style={{ position: 'relative', marginBottom: 10 }}>
                     <input
                       type="text"
-                      placeholder="Search Buyer Name..."
+                      placeholder="Search Buyer Name *"
                       value={trip.buyerName}
                       onChange={(e) => {
                         updateBusinessTrip(index, 'buyerName', e.target.value)
                         setBusinessTrips(prev => prev.map((t, i) => i === index ? { ...t, buyerPartnerId: false } : t))
                         searchBuyers(e.target.value, index)
                       }}
-                      style={{ ...fieldInput, marginBottom: 0, borderColor: trip.buyerPartnerId ? '#22c55e' : '#e5e7eb' }}
+                      onBlur={() => touch(`buyerName_${index}`)}
+                      style={{ ...fieldInput, marginBottom: 0, borderColor: trip.buyerPartnerId ? '#22c55e' : fieldError(`buyerName_${index}`, !trip.buyerName.trim()) ? '#ef4444' : '#e5e7eb', borderWidth: fieldError(`buyerName_${index}`, !trip.buyerName.trim()) ? 2 : 1 }}
                     />
                     {trip.buyerResults.length > 0 && !trip.buyerPartnerId && (
                       <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 180, overflowY: 'auto' }}>
@@ -1271,7 +1397,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                     <ChevronRightIcon className="w-4 h-4" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: colors.textLight, pointerEvents: 'none' }} />
                   </div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: colors.textSecondary, marginBottom: 6, marginTop: 4 }}>Person 1</p>
-                  <input type="text" placeholder="Person to Meet" value={trip.person1Name} onChange={(e) => updateBusinessTrip(index, 'person1Name', e.target.value)} style={fieldInput} />
+                  <input type="text" placeholder="Person to Meet *" value={trip.person1Name} onChange={(e) => updateBusinessTrip(index, 'person1Name', e.target.value)} onBlur={() => touch(`person1Name_${index}`)} style={{ ...fieldInput, borderColor: fieldError(`person1Name_${index}`, !trip.person1Name.trim()) ? '#ef4444' : '#e5e7eb', borderWidth: fieldError(`person1Name_${index}`, !trip.person1Name.trim()) ? 2 : 1 }} />
                   <input type="text" placeholder="Department" value={trip.person1Dept} onChange={(e) => updateBusinessTrip(index, 'person1Dept', e.target.value)} style={fieldInput} />
                   <input type="text" placeholder="Agenda" value={trip.person1Agenda} onChange={(e) => updateBusinessTrip(index, 'person1Agenda', e.target.value)} style={fieldInput} />
                   <p style={{ fontSize: 12, fontWeight: 700, color: colors.textSecondary, marginBottom: 6, marginTop: 4 }}>Person 2</p>
@@ -1288,6 +1414,7 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: colors.primary, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 0' }}>
                 + Add Another Buyer
               </button>
+              </div>{/* # end buyerSectionRef */}
 
               {/* ===== BUYER SELECTION ===== */}
               <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
@@ -1530,6 +1657,27 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
             </div>
           )}
 
+          {/* # Public holiday / stress day info banner */}
+          {holidaysInRange.length > 0 && (
+            <div className="mt-2 p-3 rounded-xl" style={{ backgroundColor: '#fef9c3', border: '1px solid #fbbf24' }}>
+              <p className="text-xs font-bold mb-1" style={{ color: '#92400e' }}>
+                🗓 Note on selected date{holidaysInRange.length > 1 ? 's' : ''}:
+              </p>
+              {holidaysInRange.map((h, i) => (
+                <p key={i} className="text-xs mt-1" style={{ color: '#78350f' }}>
+                  {h.type === 'holiday' ? '🎉' : '⚠️'}{' '}
+                  <span style={{ fontWeight: 700 }}>{h.type === 'holiday' ? 'Public Holiday' : 'Stress Day'}:</span>{' '}
+                  {h.name}
+                  {' '}({new Date(h.dateFrom + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                  {h.dateFrom !== h.dateTo ? ` → ${new Date(h.dateTo + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''})
+                </p>
+              ))}
+              <p className="text-xs mt-2" style={{ color: '#92400e', fontStyle: 'italic' }}>
+                You can still submit — this is for your information.
+              </p>
+            </div>
+          )}
+
           {/* # DURATION — single day, no To Date */}
           {durationType === 'duration' && (
             <div className="grid grid-cols-2 gap-2">
@@ -1553,6 +1701,30 @@ const NewRequestScreen = ({ setActiveScreen, session }: NewRequestScreenProps) =
                   onChange={(e) => setDurationDays(e.target.value)}
                   placeholder="e.g., Doctor visit"
                   className="w-full p-3 rounded-xl text-sm focus:outline-none" style={inputStyle} />
+              </div>
+            </div>
+          )}
+
+          {/* # Number of Days — auto-calculated summary badge */}
+          {calculatedDays > 0 && (
+            <div className="mt-3" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 16px', borderRadius: 12,
+              background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)',
+              border: '1px solid #c4b5fd',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 18 }}>📅</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#4c1d95' }}>Number of Days</span>
+              </div>
+              <div style={{
+                backgroundColor: '#7c3aed', borderRadius: 20,
+                padding: '4px 14px', display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+                <span style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>{calculatedDays}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+                  {calculatedDays === 0.5 ? 'half day' : calculatedDays === 1 ? 'day' : 'days'}
+                </span>
               </div>
             </div>
           )}
